@@ -5,38 +5,28 @@ describe in reports.
 
 ## Quick start
 
+This project has two main parts:
+
+1. **Backend API** (Python, FastAPI-style app served with Uvicorn)
+2. **Frontend Dashboard** (React + Vite)
+
+---
+
+### Backend
+
 ```bash
+# 1. Create and activate virtual environment
 python -m venv .venv
-.venv\Scripts\activate  # On PowerShell
+.venv\Scripts\activate  # On PowerShell (Windows)
+
+# 2. Install dependencies
 pip install -r requirements.txt
 
-set FLASK_APP=app.main   # Windows
-flask run
-```
+# 3. Run backend server (Uvicorn)
+python -m uvicorn app.main:app --reload
+# By default this starts at: http://127.0.0.1:8000
+# Interactive API docs (if enabled): http://127.0.0.1:8000/docs
 
-### Frontend
 
-```bash
-cd frontend
-npm install
-npm run dev  # Launches http://localhost:5173
-```
 
-## Architecture overview
-
-- **Document Processing** (`app/modules/document_processing`): converts
-  PDF/DOCX/TXT files into normalized text. Currently returns placeholders with
-  TODOs for format detection, extraction, and cleaning.
-- **MCQ Generation + XAI** (`app/modules/mcq_generation`): creates questions,
-  distractors, and attaches explanation metadata (TF-IDF + rule-based + LLM
-  stubs).
-- **MCQ Management** (`app/modules/mcq_management`): SQLAlchemy models,
-  repository layer, and REST routes for storing/serving MCQs.
-- **Frontend Dashboard** (`frontend/`): Vite + React SPA that mirrors the
-  three backend modules so the workflow is easy to demo and explain. Buttons
-  currently show placeholder state and include TODO notes for wiring up the
-  Flask APIs.
-
-Each module includes TODO comments that map directly to the methodology
-sections we will elaborate later.
 
