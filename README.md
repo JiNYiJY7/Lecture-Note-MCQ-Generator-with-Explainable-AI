@@ -28,7 +28,7 @@ python -m uvicorn app.main:app --reload
 # Interactive API docs (if enabled): http://127.0.0.1:8000/docs
 
 
-# Frontend (React + Vite)
+### Frontend (React + Vite)
 
 This single-page UI mirrors the backend pipeline so Workshop teammates can
 demonstrate each module interactively.
