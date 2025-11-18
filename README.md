@@ -27,7 +27,7 @@ python -m uvicorn app.main:app --reload
 # By default this starts at: http://127.0.0.1:8000
 # Interactive API docs (if enabled): http://127.0.0.1:8000/docs
 
-### Frontend
+## **Frontend**
 
 This single-page UI mirrors the backend pipeline so Workshop teammates can
 demo each module interactively.
