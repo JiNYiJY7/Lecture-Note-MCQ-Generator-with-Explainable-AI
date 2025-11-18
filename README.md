@@ -27,7 +27,7 @@ python -m uvicorn app.main:app --reload
 # By default this starts at: http://127.0.0.1:8000
 # Interactive API docs (if enabled): http://127.0.0.1:8000/docs
 
-## **Frontend**
+## Frontend
 
 This single-page UI mirrors the backend pipeline so Workshop teammates can
 demo each module interactively.
@@ -42,4 +42,12 @@ npm install
 # 3. Run the Vite dev server
 npm run dev
 # By default this starts at: http://localhost:5173
+
+## Backend
+
+### 1. Create and activate virtual environment
+```bash
+python -m venv .venv
+.venv\Scripts\activate   # On PowerShell (Windows)
+
 
