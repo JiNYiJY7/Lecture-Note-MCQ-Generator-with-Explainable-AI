@@ -12,6 +12,14 @@ This project has two main parts:
 
 ---
 
+## .env Setup
+
+    # DeepSeek API Key (required for MCQ Generation + XAI)
+    DEEPSEEK_API_KEY=your_api_key_here
+
+Restart the backend server after updating the `.env` file.
+
+
 ## Backend
 
 ### 1. Create and activate virtual environment
