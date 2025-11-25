@@ -68,6 +68,11 @@ def generate_mcqs(payload: schemas.MCQGenerateRequest, db: Session = Depends(get
             detail="Unexpected error while generating MCQs.",
         ) from exc
 
+    # If we saved them, map the new IDs back to the question objects
+    if created_ids:
+        for i, q in enumerate(questions):
+            q.id = created_ids[i]
+
     # 3) Return generated MCQs + optional DB IDs
     return schemas.MCQGenerateResponse(
         questions=questions,

@@ -34,7 +34,7 @@ def load_question_bundle(db: Session, question_id: int) -> Tuple[str, str, List[
         db.query(mcq_models.Question)
         .options(
             joinedload(mcq_models.Question.options),
-            joinedload(mcq_models.Question.answer_key),
+            joinedload(mcq_models.Question.answer_key).joinedload(mcq_models.AnswerKey.correct_option),
             joinedload(mcq_models.Question.lecture),
         )
         .filter(mcq_models.Question.id == question_id)
@@ -48,12 +48,17 @@ def load_question_bundle(db: Session, question_id: int) -> Tuple[str, str, List[
         raise ValueError("Question has no linked lecture.")
 
     lecture_text = q.lecture.clean_text or ""
-    stem = q.text
+    stem = q.stem  # FIXED: used to be q.text
+
     opts = [
         xai_schemas.XAIOption(label=o.label, text=o.text)
         for o in sorted(q.options, key=lambda x: x.label)
     ]
-    correct_label = q.answer_key.correct_label if q.answer_key else ""
+
+    # FIXED: Access correct_option relationship
+    correct_label = ""
+    if q.answer_key and q.answer_key.correct_option:
+        correct_label = q.answer_key.correct_option.label
 
     return lecture_text, stem, opts, correct_label
 
@@ -78,18 +83,30 @@ def retrieve_evidence(lecture_text: str, query_text: str, top_k: int = 3) -> Lis
     if not sentences:
         return []
 
+    # If corpus is too small, just return what we have
+    if len(sentences) < top_k:
+        return sentences
+
     corpus = sentences + [query_text]
-    vectorizer = TfidfVectorizer()
-    tfidf = vectorizer.fit_transform(corpus)
 
-    query_vec = tfidf[-1]  # last row is the query
-    doc_matrix = tfidf[:-1]
+    try:
+        vectorizer = TfidfVectorizer()
+        tfidf = vectorizer.fit_transform(corpus)
 
-    # cosine similarity
-    sims = (doc_matrix @ query_vec.T).toarray().ravel()
-    top_indices = np.argsort(sims)[::-1][:top_k]
+        query_vec = tfidf[-1]  # last row is the query
+        doc_matrix = tfidf[:-1]
 
-    return [sentences[i] for i in top_indices if sims[i] > 0]
+        # cosine similarity
+        sims = (doc_matrix @ query_vec.T).toarray().ravel()
+
+        # sort descending
+        top_indices = np.argsort(sims)[::-1][:top_k]
+
+        # only keep sentences with non-zero similarity
+        return [sentences[i] for i in top_indices if sims[i] > 0]
+    except ValueError:
+        # Handle cases with empty vocabulary or stop words only
+        return sentences[:top_k]
 
 
 # ---------------------------------------------------------------------------
@@ -113,7 +130,7 @@ def build_explanation(
     3. LLM (DeepSeek-Reasoner): turn the structured information into a
        natural-language explanation and suggest review topics.
     """
-    is_correct = student_label == correct_label
+    is_correct = (student_label == correct_label)
 
     # Find text of student's choice / correct choice
     label_to_text = {o.label: o.text for o in options}
@@ -158,22 +175,20 @@ def build_explanation(
 
     try:
         reasoning_text = call_deepseek_reasoner(system_prompt, user_prompt)
-    except Exception:
+    except Exception as e:
+        print(f"LLM Error: {e}")
         # Fallback in case the LLM call fails
         base_msg = (
-            "Your answer is {}. The correct answer is {}. "
-            "Please review the key idea: {}."
-        ).format(
-            "correct" if is_correct else "incorrect",
-            correct_label,
-            correct_text or "the main concept described in the lecture",
+            f"Your answer is {'correct' if is_correct else 'incorrect'}. "
+            f"The correct answer is {correct_label}: {correct_text}. "
+            "Please review the lecture notes for more details."
         )
         reasoning_text = base_msg
 
-    # Very lightweight extraction of key concepts / topics
-    # (in a real system, you might parse the LLM output more carefully)
+    # In a real app, you might ask the LLM to output JSON to parse these out reliably
+    # For now, we just reuse the evidence as the "key concepts"
     key_concepts = evidence[:3]
-    review_topics = evidence[:3]
+    review_topics = ["Review the retrieved evidence sentences above."]
 
     return xai_schemas.XAIExplanationResponse(
         is_correct=is_correct,

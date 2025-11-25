@@ -8,9 +8,10 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.core.database import Base, engine
 from app.modules.document_processing.router import router as document_router
-from app.modules.mcq_generation.router import router as mcq_router
+from app.modules.mcq_generation.router import router as generation_router
 from app.modules.mcq_management.router import router as management_router
 from app.modules.xai.router import router as xai_router
+
 
 # Create all database tables
 Base.metadata.create_all(bind=engine)
@@ -39,11 +40,10 @@ app.add_middleware(
 
 
 # Register API routers
-app.include_router(document_router, prefix="/api")
-app.include_router(mcq_router, prefix="/api")
 app.include_router(xai_router, prefix="/api")
+app.include_router(document_router, prefix="/api")
 app.include_router(management_router, prefix="/api")
-
+app.include_router(generation_router, prefix="/api")
 
 @app.get("/")
 def root():
@@ -52,3 +52,4 @@ def root():
         "status": "ok",
         "message": "Lecture Note MCQ Generator backend is running.",
     }
+
