@@ -8,9 +8,37 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.modules.xai import schemas as xai_schemas, service
 
-router = APIRouter(prefix="/xai", tags=["XAI"])
+from pydantic import BaseModel
+from app.modules.xai.chat_manager import chat_manager
 
+router = APIRouter(prefix="/xai", tags=["XAI & Chat"])
 
+# --- Define Schema for Chat Request ---
+class ChatRequest(BaseModel):
+    session_id: str
+    message: str
+    user_id: str = "student_1"
+
+class ChatResponse(BaseModel):
+    response: str
+
+# --- Chat Endpoint --- #
+@router.post("/chat", response_model=ChatResponse)
+async def chat_with_agent(payload: ChatRequest):
+    """
+    Send a message to the AI Tutor Agent.
+    """
+    try:
+        response_text = await chat_manager.send_message(
+            session_id=payload.session_id,
+            user_msg=payload.message,
+            user_id=payload.user_id
+        )
+        return ChatResponse(response=response_text)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# --- XAI Endpoint --- #
 @router.post("/explain", response_model=xai_schemas.XAIExplanationResponse)
 def explain_answer(
     payload: xai_schemas.XAIExplanationRequest,

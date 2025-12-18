@@ -12,6 +12,17 @@ router = APIRouter(
     tags=["MCQ Management"]
 )
 
+@router.delete("/lectures/{lecture_id}")
+def delete_lecture(lecture_id: int, db: Session = Depends(get_db)):
+    """Soft delete a lecture."""
+    service.soft_delete_lecture(db, lecture_id)
+    return {"status": "success", "message": "Lecture deleted"}
+
+@router.get("/lectures", response_model=List[schemas.LectureRead])
+def list_lectures(db: Session = Depends(get_db)):
+    """Get a list of all uploaded lectures (quizzes)."""
+    return service.get_all_lectures(db)
+
 @router.get("/lectures/{lecture_id}/questions", response_model=List[schemas.QuestionWithOptionsAndAnswerKey])
 def list_questions(
     lecture_id: int,

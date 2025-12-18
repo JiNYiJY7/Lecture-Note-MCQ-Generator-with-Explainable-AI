@@ -14,6 +14,23 @@ from app.modules.mcq_management import models, schemas
 # Query helpers
 # ---------------------------------------------------------------------------
 
+def get_all_lectures(db: Session) -> List[models.Lecture]:
+    """List all lectures sorted by newest first."""
+    return (
+        db.query(models.Lecture)
+        .filter(models.Lecture.is_active == True)  # Filter out deleted ones
+        .order_by(models.Lecture.created_at.desc())
+        .all()
+    )
+
+# Add new function
+def soft_delete_lecture(db: Session, lecture_id: int):
+    """Mark a lecture as inactive (soft delete)."""
+    lecture = db.query(models.Lecture).filter(models.Lecture.id == lecture_id).first()
+    if lecture:
+        lecture.is_active = False
+        db.commit()
+    return lecture
 
 def list_questions_by_lecture_and_section(
     db: Session,

@@ -28,6 +28,7 @@ class Lecture(Base):
     raw_text: Mapped[str] = mapped_column(Text, nullable=False)
     clean_text: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 
     sections: Mapped[list["Section"]] = relationship(
         back_populates="lecture", cascade="all, delete-orphan"
@@ -110,6 +111,7 @@ class Explanation(Base):
     __tablename__ = "explanations"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    option_id = Column(Integer, ForeignKey("options.id"), nullable=True)
     question_id: Mapped[int] = mapped_column(ForeignKey("questions.id"), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     source: Mapped[str | None] = mapped_column(String(100), nullable=True)

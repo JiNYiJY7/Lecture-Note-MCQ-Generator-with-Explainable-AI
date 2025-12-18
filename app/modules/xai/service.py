@@ -1,118 +1,23 @@
-"""XAI logic: TF-IDF retrieval + rule-based correctness + LLM explanation."""
+"""XAI logic: TF-IDF retrieval + Hybrid AI explanation + Rule-based fallback."""
 
 from __future__ import annotations
 
 import re
 from typing import List, Tuple
-
 import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sqlalchemy.orm import Session, joinedload
 
-from app.core.llm_client import call_deepseek_reasoner
 from app.modules.xai import schemas as xai_schemas
 from app.modules.mcq_management import models as mcq_models
 
+# --- IMPORTS ---
+# Use the hybrid wrapper from llm_client
+from app.core.llm_client import call_deepseek_reasoner
 
 # ---------------------------------------------------------------------------
-# Helpers: DB loading (for question_id mode)
+# Core Service Function
 # ---------------------------------------------------------------------------
-
-
-def load_question_bundle(db: Session, question_id: int) -> Tuple[str, str, List[xai_schemas.XAIOption], str]:
-    """
-    Load lecture text, question stem, options, and correct label from DB.
-
-    Returns
-    -------
-    lecture_text : str
-    stem         : str
-    options      : list[XAIOption]
-    correct_label: str
-    """
-    q = (
-        db.query(mcq_models.Question)
-        .options(
-            joinedload(mcq_models.Question.options),
-            joinedload(mcq_models.Question.answer_key).joinedload(mcq_models.AnswerKey.correct_option),
-            joinedload(mcq_models.Question.lecture),
-        )
-        .filter(mcq_models.Question.id == question_id)
-        .first()
-    )
-
-    if q is None:
-        raise ValueError(f"Question with id={question_id} not found.")
-
-    if not q.lecture:
-        raise ValueError("Question has no linked lecture.")
-
-    lecture_text = q.lecture.clean_text or ""
-    stem = q.stem  # FIXED: used to be q.text
-
-    opts = [
-        xai_schemas.XAIOption(label=o.label, text=o.text)
-        for o in sorted(q.options, key=lambda x: x.label)
-    ]
-
-    # FIXED: Access correct_option relationship
-    correct_label = ""
-    if q.answer_key and q.answer_key.correct_option:
-        correct_label = q.answer_key.correct_option.label
-
-    return lecture_text, stem, opts, correct_label
-
-
-# ---------------------------------------------------------------------------
-# TF-IDF retrieval: find evidence sentences from lecture text
-# ---------------------------------------------------------------------------
-
-
-def _split_into_sentences(text: str) -> List[str]:
-    """Very light sentence splitter using punctuation and newlines."""
-    raw = re.split(r"[.\n]+", text)
-    return [s.strip() for s in raw if s.strip()]
-
-
-def retrieve_evidence(lecture_text: str, query_text: str, top_k: int = 3) -> List[str]:
-    """
-    Use TF-IDF + cosine similarity to retrieve the most relevant sentences
-    from the lecture text for the given query_text.
-    """
-    sentences = _split_into_sentences(lecture_text)
-    if not sentences:
-        return []
-
-    # If corpus is too small, just return what we have
-    if len(sentences) < top_k:
-        return sentences
-
-    corpus = sentences + [query_text]
-
-    try:
-        vectorizer = TfidfVectorizer()
-        tfidf = vectorizer.fit_transform(corpus)
-
-        query_vec = tfidf[-1]  # last row is the query
-        doc_matrix = tfidf[:-1]
-
-        # cosine similarity
-        sims = (doc_matrix @ query_vec.T).toarray().ravel()
-
-        # sort descending
-        top_indices = np.argsort(sims)[::-1][:top_k]
-
-        # only keep sentences with non-zero similarity
-        return [sentences[i] for i in top_indices if sims[i] > 0]
-    except ValueError:
-        # Handle cases with empty vocabulary or stop words only
-        return sentences[:top_k]
-
-
-# ---------------------------------------------------------------------------
-# Main explanation pipeline
-# ---------------------------------------------------------------------------
-
 
 def build_explanation(
     lecture_text: str,
@@ -122,25 +27,26 @@ def build_explanation(
     student_label: str,
 ) -> xai_schemas.XAIExplanationResponse:
     """
-    Core XAI pipeline:
-
-    1. TF-IDF retrieval: find key sentences from the lecture related to the
-       question + correct answer.
-    2. Rule-based correctness: compare student_label vs correct_label.
-    3. LLM (DeepSeek-Reasoner): turn the structured information into a
-       natural-language explanation and suggest review topics.
+    Core XAI pipeline with 3 Layers of Redundancy:
+    1. Retrieval: Local TF-IDF (Always works).
+    2. Generation: Hybrid AI (DeepSeek -> Ollama).
+    3. Fallback: Rule-Based Stitching (If AIs fail).
     """
     is_correct = (student_label == correct_label)
 
-    # Find text of student's choice / correct choice
+    # Helper: Map labels to text
     label_to_text = {o.label: o.text for o in options}
     student_text = label_to_text.get(student_label, "")
     correct_text = label_to_text.get(correct_label, "")
 
+    # 1. RETRIEVE EVIDENCE (Local, No Internet needed)
+    # We include the correct answer text in query to find relevant lecture parts
     query_text = f"{question_stem}\nCorrect answer: {correct_text}"
+
+    # Call the function defined at the bottom of this file
     evidence = retrieve_evidence(lecture_text, query_text, top_k=3)
 
-    # Build a compact JSON-like context for the LLM
+    # Build context for the AI
     context_block = {
         "question_stem": question_stem,
         "options": [{"label": o.label, "text": o.text} for o in options],
@@ -152,49 +58,97 @@ def build_explanation(
         "evidence_sentences": evidence,
     }
 
+    # 2. HYBRID AI GENERATION
+    reasoning_text = ""
+
+    # Prompts designed for the 'reasoner' or 'smart' model
     system_prompt = (
-        "You are an Explainable AI (XAI) tutor for university students. "
-        "Given a multiple-choice question, the student's answer, the correct "
-        "answer, and some evidence sentences from the lecture note, you must "
-        "produce a clear, concise explanation.\n\n"
-        "- If the answer is correct: confirm it and briefly explain why.\n"
-        "- If the answer is incorrect: explain why it is wrong, then explain "
-        "the correct answer.\n"
-        "- Finally, suggest 2-3 short topics the student should review.\n"
-        "Answer in simple English, 2–4 short paragraphs, without repeating the "
-        "full question text."
+        "You are an XAI tutor. Explain the answer using the provided evidence. "
+        "Be concise (maximum 2 sentences). Direct tone."
     )
 
     user_prompt = (
-        "Here is the structured context in JSON form:\n"
+        "Here is the context:\n"
         f"{context_block}\n\n"
-        "1) First, give a short judgement (Correct / Incorrect).\n"
-        "2) Then explain using the evidence sentences.\n"
-        "3) End with a bullet list called 'Topics to review'."
+        "Explain why the student is correct or incorrect based on the evidence."
     )
 
     try:
+        # This calls the wrapper in llm_client.py
+        # It tries DeepSeek -> Fails -> Tries Ollama -> Fails -> Returns ""
         reasoning_text = call_deepseek_reasoner(system_prompt, user_prompt)
     except Exception as e:
-        print(f"LLM Error: {e}")
-        # Fallback in case the LLM call fails
-        base_msg = (
-            f"Your answer is {'correct' if is_correct else 'incorrect'}. "
-            f"The correct answer is {correct_label}: {correct_text}. "
-            "Please review the lecture notes for more details."
-        )
-        reasoning_text = base_msg
+        print(f"Service Warning: AI call error: {e}")
+        reasoning_text = ""
 
-    # In a real app, you might ask the LLM to output JSON to parse these out reliably
-    # For now, we just reuse the evidence as the "key concepts"
-    key_concepts = evidence[:3]
-    review_topics = ["Review the retrieved evidence sentences above."]
+    # 3. RULE-BASED FALLBACK (Safety Net)
+    # If reasoning_text is empty (meaning both DeepSeek and Ollama failed/crashed),
+    # we manually stitch the evidence together.
+    if not reasoning_text:
+        print("   ⚠️ SYSTEM: Using Rule-Based Fallback (AI Unavailable)")
+        if evidence:
+            joined_evidence = " ".join([f"'{s}'" for s in evidence])
+            if is_correct:
+                reasoning_text = (
+                    f"Correct. The lecture states: {joined_evidence} "
+                    "This supports your answer."
+                )
+            else:
+                reasoning_text = (
+                    f"Incorrect. The lecture notes state: {joined_evidence} "
+                    f"Therefore, the correct answer is {correct_label}."
+                )
+        else:
+            reasoning_text = (
+                f"Your answer is {'correct' if is_correct else 'incorrect'}. "
+                f"The correct option is {correct_label}. (No specific evidence found in notes)."
+            )
 
+    # 4. Return Result
     return xai_schemas.XAIExplanationResponse(
         is_correct=is_correct,
         student_label=student_label,
         correct_label=correct_label,
         reasoning=reasoning_text,
-        key_concepts=key_concepts,
-        review_topics=review_topics,
+        key_concepts=evidence[:3],
+        review_topics=["Review the retrieved evidence sentences."]
     )
+
+# ---------------------------------------------------------------------------
+# Evidence Retrieval Logic
+# ---------------------------------------------------------------------------
+
+def retrieve_evidence(lecture_text: str, query: str, top_k: int = 3) -> List[str]:
+    """
+    TF-IDF based retrieval of relevant sentences from lecture text.
+    """
+    if not lecture_text:
+        return []
+
+    # Simple sentence splitting
+    sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', lecture_text) if len(s) > 20]
+    if not sentences:
+        return []
+
+    # Add query to corpus to fit vectorizer
+    corpus = sentences + [query]
+
+    try:
+        vectorizer = TfidfVectorizer(stop_words='english')
+        tfidf_matrix = vectorizer.fit_transform(corpus)
+
+        # Calculate cosine similarity between query (last item) and all sentences
+        cosine_similarities = (tfidf_matrix[-1] * tfidf_matrix[:-1].T).toarray()[0]
+
+        # Get top_k indices
+        top_indices = cosine_similarities.argsort()[-top_k:][::-1]
+
+        results = []
+        for idx in top_indices:
+            if cosine_similarities[idx] > 0.1: # Threshold to ignore irrelevant noise
+                results.append(sentences[idx])
+
+        return results
+    except Exception as e:
+        print(f"Retrieval Error: {e}")
+        return []
