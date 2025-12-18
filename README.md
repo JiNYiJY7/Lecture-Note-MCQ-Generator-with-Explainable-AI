@@ -5,7 +5,7 @@ describe in reports.
 
 ## Quick start
 
-This project has two main parts:
+This project has three main parts:
 
 1. **Backend API** (Python, FastAPI-style app served with Uvicorn)
 2. **Frontend Dashboard** (React + Vite)
