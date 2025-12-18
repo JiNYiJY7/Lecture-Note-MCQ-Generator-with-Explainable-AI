@@ -9,15 +9,34 @@ This project has two main parts:
 
 1. **Backend API** (Python, FastAPI-style app served with Uvicorn)
 2. **Frontend Dashboard** (React + Vite)
+3. **Hybrid AI Engine** (Supports both DeepSeek Online & Ollama Offline)
 
 ---
 
 ## .env Setup
 
-    # DeepSeek API Key (required for MCQ Generation + XAI)
+### 1. Setup Environment Variables (.env)
+
+Create a `.env` file in the root directory:
+
+    # DeepSeek API Key (Required for Online Mode)
     DEEPSEEK_API_KEY=your_api_key_here
 
+    # Note: If this key is missing or the internet is down, 
+    # the system automatically switches to Offline Mode (Ollama).
+
 Restart the backend server after updating the `.env` file.
+
+---
+
+### 2. Offline Mode Setup (Ollama)
+
+To enable the **Offline Fallback** (so the app works without internet), you must install Ollama locally.
+
+1. **Download Ollama**: Get it from [ollama.com](https://ollama.com).
+2. **Pull the Model**: Open your terminal and run:
+   ```bash
+   ollama run llama3.2
 
 
 ## Backend
