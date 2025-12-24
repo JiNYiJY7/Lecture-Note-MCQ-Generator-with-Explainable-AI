@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import List, Optional, Literal  # ✅ add Literal
 
 from pydantic import BaseModel, Field
 
@@ -32,6 +32,9 @@ class GeneratedQuestion(BaseModel):
     options: List[GeneratedOption]
     correct_label: str = Field(..., min_length=1, max_length=5)
 
+    # ✅ optional: returned for UI / analytics (not required to generate)
+    difficulty: Optional[Literal["easy", "medium", "hard"]] = None
+
 
 # ---------------------------------------------------------------------------
 # Request / Response payloads for the /mcq/generate endpoint
@@ -55,6 +58,10 @@ class MCQGenerateRequest(BaseModel):
     section_id: Optional[int] = None
     num_questions: int = Field(default=3, ge=1, le=20)
     use_llm: bool = True
+
+    # ✅ new: optional difficulty control
+    # None => mixed difficulty (current behavior)
+    difficulty: Optional[Literal["easy", "medium", "hard"]] = None
 
 
 class MCQGenerateResponse(BaseModel):

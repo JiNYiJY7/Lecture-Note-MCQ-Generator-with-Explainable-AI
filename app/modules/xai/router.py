@@ -2,43 +2,54 @@
 
 from __future__ import annotations
 
+import traceback
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+from pydantic import BaseModel
 
 from app.core.database import get_db
 from app.modules.xai import schemas as xai_schemas, service
-
-from pydantic import BaseModel
 from app.modules.xai.chat_manager import chat_manager
 
 router = APIRouter(prefix="/xai", tags=["XAI & Chat"])
 
-# --- Define Schema for Chat Request ---
+
+# ----------------------------
+# Chat schemas
+# ----------------------------
 class ChatRequest(BaseModel):
     session_id: str
     message: str
     user_id: str = "student_1"
 
+
 class ChatResponse(BaseModel):
     response: str
 
-# --- Chat Endpoint --- #
+
+# ----------------------------
+# Chat endpoint
+# ----------------------------
 @router.post("/chat", response_model=ChatResponse)
 async def chat_with_agent(payload: ChatRequest):
-    """
-    Send a message to the AI Tutor Agent.
-    """
+    """Send a message to the AI Tutor Agent."""
     try:
         response_text = await chat_manager.send_message(
             session_id=payload.session_id,
             user_msg=payload.message,
-            user_id=payload.user_id
+            user_id=payload.user_id,
         )
         return ChatResponse(response=response_text)
     except Exception as e:
+        # show real error for debugging
+        print("❌ /xai/chat crashed:", repr(e))
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
-# --- XAI Endpoint --- #
+
+# ----------------------------
+# XAI explain endpoint
+# ----------------------------
 @router.post("/explain", response_model=xai_schemas.XAIExplanationResponse)
 def explain_answer(
     payload: xai_schemas.XAIExplanationRequest,
@@ -48,15 +59,12 @@ def explain_answer(
     Explain a student's answer to a generated MCQ.
 
     Two modes are supported:
-
     - DB mode:
         * question_id is provided (non-zero)
         * backend looks up lecture text + question + options in the database
-
-    - Stateless mode (used by the current React frontend):
+    - Stateless mode:
         * question_id is None or 0
         * question_stem, options, correct_label, lecture_text are sent directly
-          from the frontend.
     """
     try:
         # Decide which source to use
@@ -74,7 +82,8 @@ def explain_answer(
                 and payload.lecture_text
             ):
                 raise ValueError(
-                    "Either a valid question_id or full question payload must be provided."
+                    "Either a valid question_id OR full payload "
+                    "(question_stem, options, correct_label, lecture_text) must be provided."
                 )
 
             lecture_text = payload.lecture_text
@@ -93,11 +102,20 @@ def explain_answer(
         return resp
 
     except ValueError as exc:
-        # User-facing errors (e.g., question not found)
+        # User-facing errors
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    except HTTPException:
+        # Preserve any explicit HTTPException thrown inside service
+        raise
+
     except Exception as exc:
-        # Any unexpected error becomes a generic 500
+        # IMPORTANT: print full traceback so you can see the real cause
+        print("❌ /xai/explain crashed:", repr(exc))
+        traceback.print_exc()
+
+        # Give a slightly more informative (still safe) detail
         raise HTTPException(
             status_code=500,
-            detail="Unexpected error while generating XAI explanation.",
+            detail=f"Unexpected error while generating XAI explanation: {type(exc).__name__}",
         ) from exc

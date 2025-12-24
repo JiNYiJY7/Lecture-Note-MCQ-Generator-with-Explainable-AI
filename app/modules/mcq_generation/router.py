@@ -44,6 +44,7 @@ def generate_mcqs(payload: schemas.MCQGenerateRequest, db: Session = Depends(get
             questions = service.generate_mcqs_with_llm(
                 lecture_text=lecture_text,
                 num_questions=payload.num_questions,
+                difficulty=payload.difficulty,  # ✅ new (None => mixed)
             )
         else:
             questions = service.generate_stub_questions(params=payload)

@@ -30,7 +30,7 @@ MAIN_MODEL = "deepseek/deepseek-chat"
 FALLBACK_MODELS = ["ollama/llama3.2"]
 
 root_agent = Agent(
-    name="lecture_mcq_chatbot",
+    name="LN_MCQ_Chatbot",
     # Configure LiteLLM with Fallbacks
     model=LiteLlm(
         model=MAIN_MODEL,
