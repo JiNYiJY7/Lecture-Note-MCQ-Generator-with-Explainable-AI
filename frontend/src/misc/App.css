@@ -1,0 +1,637 @@
+/* Root layout */
+.app-root {
+  min-height: 100vh;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  background: linear-gradient(135deg, #eef3ff, #f8fbff);
+  color: #121826;
+  padding: 24px 24px 40px;
+  transition: background 0.3s ease, color 0.3s ease;
+}
+
+.app-root.dark {
+  background: radial-gradient(circle at top, #22253a, #050816);
+  color: #f5f7ff;
+}
+
+/* Header */
+.app-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 18px 24px;
+  border-radius: 18px;
+  background: linear-gradient(135deg, #4f46e5, #6366f1, #8b5cf6);
+  color: white;
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.35);
+  margin-bottom: 20px;
+}
+
+.app-header h1 {
+  margin: 0 0 4px;
+  font-size: 1.8rem;
+}
+
+.app-subtitle {
+  margin: 0;
+  font-size: 0.9rem;
+  opacity: 0.9;
+}
+
+/* Dark mode button */
+.btn-toggle-mode {
+  border: none;
+  background: rgba(15, 23, 42, 0.25);
+  color: #f9fafb;
+  padding: 8px 16px;
+  border-radius: 999px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.1s ease;
+}
+
+.btn-toggle-mode:hover {
+  background: rgba(15, 23, 42, 0.4);
+  transform: translateY(-1px);
+}
+
+/* Tabs */
+.tabs {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.tab {
+  border: none;
+  padding: 8px 16px;
+  border-radius: 999px;
+  font-size: 0.9rem;
+  background: rgba(15, 23, 42, 0.06);
+  cursor: pointer;
+  color: inherit;
+  transition: background 0.2s ease, box-shadow 0.2s ease, transform 0.1s ease;
+}
+
+.tab.active {
+  background: #2563eb;
+  color: #f9fafb;
+  box-shadow: 0 8px 18px rgba(37, 99, 235, 0.35);
+  transform: translateY(-1px);
+}
+
+/* Main area */
+.app-main {
+  max-width: 1120px;
+  margin: 0 auto;
+}
+
+/* Cards */
+.card {
+  background: rgba(255, 255, 255, 0.96);
+  border-radius: 20px;
+  padding: 22px 24px 26px;
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.08);
+}
+
+.app-root.dark .card {
+  background: rgba(15, 23, 42, 0.88);
+  box-shadow: 0 18px 40px rgba(15, 23, 42, 0.9);
+}
+
+.card + .card {
+  margin-top: 16px;
+}
+
+.card h2 {
+  margin-top: 0;
+  margin-bottom: 6px;
+}
+
+.section-intro {
+  margin-top: 0;
+  margin-bottom: 16px;
+  font-size: 0.95rem;
+  color: #4b5563;
+}
+
+.app-root.dark .section-intro {
+  color: #cbd5f5;
+}
+
+/* Split card for step 3 */
+.card-split {
+  display: grid;
+  grid-template-columns: minmax(0, 2.1fr) minmax(0, 1.4fr);
+  gap: 18px;
+}
+
+@media (max-width: 900px) {
+  .card-split {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Form layout */
+.form-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(0, 1.2fr);
+  gap: 24px;
+}
+
+@media (max-width: 900px) {
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.form-column {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.field-label {
+  font-weight: 500;
+  font-size: 0.9rem;
+}
+
+.textarea,
+input[type="text"],
+input[type="number"],
+input[type="file"] {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.7);
+  font-size: 0.9rem;
+  outline: none;
+  box-sizing: border-box;
+}
+
+.textarea {
+  resize: vertical;
+}
+
+input:focus,
+.textarea:focus {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.3);
+}
+
+/* Buttons */
+.btn-primary,
+.btn-secondary {
+  border-radius: 999px;
+  padding: 8px 18px;
+  border: none;
+  cursor: pointer;
+  font-size: 0.9rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: background 0.2s ease, box-shadow 0.2s ease, transform 0.1s ease;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, #2563eb, #4f46e5);
+  color: white;
+  box-shadow: 0 10px 22px rgba(37, 99, 235, 0.4);
+  margin-top: 6px;
+  align-self: flex-start;
+}
+
+.btn-primary:hover {
+  background: linear-gradient(135deg, #1d4ed8, #4338ca);
+  transform: translateY(-1px);
+}
+
+.btn-secondary {
+  background: rgba(15, 23, 42, 0.08);
+  color: inherit;
+}
+
+.btn-secondary:hover {
+  background: rgba(15, 23, 42, 0.12);
+}
+
+.btn-secondary:disabled,
+.btn-primary:disabled {
+  opacity: 0.6;
+  cursor: default;
+  transform: none;
+  box-shadow: none;
+}
+
+/* Alerts */
+.alert {
+  max-width: 1120px;
+  margin: 0 auto 16px;
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-size: 0.9rem;
+}
+
+.alert-error {
+  background: #fee2e2;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+}
+
+.app-root.dark .alert-error {
+  background: rgba(239, 68, 68, 0.12);
+  color: #fecaca;
+  border-color: rgba(248, 113, 113, 0.4);
+}
+
+/* Preview */
+.preview-title {
+  margin: 0 0 4px;
+  font-size: 1rem;
+}
+
+.preview-subtitle {
+  margin: 0 0 10px;
+  font-size: 0.85rem;
+  color: #6b7280;
+}
+
+.app-root.dark .preview-subtitle {
+  color: #9ca3af;
+}
+
+.section-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.section-list li {
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.03);
+}
+
+.app-root.dark .section-list li {
+  background: rgba(15, 23, 42, 0.9);
+}
+
+.section-index {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #2563eb;
+  margin-bottom: 2px;
+}
+
+.app-root.dark .section-index {
+  color: #93c5fd;
+}
+
+.section-content {
+  font-size: 0.88rem;
+}
+
+/* Hint box */
+.hint-box {
+  margin-top: 16px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(191, 219, 254, 0.4);
+  font-size: 0.85rem;
+  color: #1d4ed8;
+}
+
+.app-root.dark .hint-box {
+  background: rgba(30, 64, 175, 0.5);
+  color: #bfdbfe;
+}
+
+/* Form row (step 2) */
+.form-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+
+.form-group-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.checkbox-inline {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.9rem;
+}
+
+/* MCQs */
+.mcq-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.mcq-card {
+  border-radius: 14px;
+  padding: 12px 14px;
+  background: rgba(15, 23, 42, 0.02);
+  border: 1px solid rgba(148, 163, 184, 0.4);
+}
+
+.app-root.dark .mcq-card {
+  background: rgba(15, 23, 42, 0.8);
+  border-color: rgba(148, 163, 184, 0.6);
+}
+
+.mcq-card-active {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.4);
+}
+
+.mcq-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.mcq-number {
+  font-weight: 600;
+}
+
+.mcq-difficulty {
+  font-size: 0.8rem;
+  color: #6b7280;
+}
+
+.mcq-stem {
+  margin: 4px 0 6px;
+}
+
+.mcq-options {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mcq-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.9rem;
+  padding: 4px 6px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.mcq-option input {
+  margin: 0;
+}
+
+.mcq-option-label {
+  font-weight: 600;
+}
+
+.mcq-option-selected {
+  background: rgba(37, 99, 235, 0.08);
+}
+
+.app-root.dark .mcq-option-selected {
+  background: rgba(37, 99, 235, 0.3);
+}
+
+.mcq-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 8px;
+}
+
+.mcq-correct {
+  font-size: 0.8rem;
+  color: #6b7280;
+}
+
+/* XAI */
+.card-right h3 {
+  margin-top: 0;
+}
+
+.xai-card {
+  border-radius: 14px;
+  padding: 12px 14px;
+  background: rgba(15, 23, 42, 0.02);
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  font-size: 0.9rem;
+}
+
+.app-root.dark .xai-card {
+  background: rgba(15, 23, 42, 0.8);
+}
+
+.xai-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.badge {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.badge-correct {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.badge-wrong {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.xai-subtitle {
+  font-size: 0.8rem;
+  color: #6b7280;
+}
+
+.xai-section {
+  margin-top: 8px;
+}
+
+.xai-section h4 {
+  margin: 0 0 4px;
+  font-size: 0.9rem;
+}
+
+.xai-section ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+/* Misc */
+.placeholder {
+  font-size: 0.88rem;
+  color: #6b7280;
+}
+
+.app-root.dark .placeholder {
+  color: #9ca3af;
+}
+
+.file-hint {
+  font-size: 0.82rem;
+  color: #6b7280;
+}
+
+.link-button-inline {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  color: #2563eb;
+  text-decoration: underline;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+/* ----------------------------------------------- */
+/* MCQ highlight for batch explanation (Google Form style) */
+/* ----------------------------------------------- */
+
+/* student chosen & correct (绿色亮眼) */
+.mcq-option-correct {
+  background: rgba(74, 222, 128, 0.25); /* #4ade80 */
+  border: 1px solid rgba(34, 197, 94, 0.8);
+  color: #065f46;
+}
+
+/* student chosen but wrong (红色) */
+.mcq-option-wrong {
+  background: rgba(248, 113, 113, 0.25); /* #f87171 */
+  border: 1px solid rgba(220, 38, 38, 0.8);
+  color: #7f1d1d;
+}
+
+/* correct answer shown when user answered wrong (淡绿) */
+.mcq-option-right-answer {
+  background: rgba(52, 211, 153, 0.18); /* #34d399 */
+  border: 1px solid rgba(16, 185, 129, 0.6);
+  color: #065f46;
+}
+
+/* dark mode support */
+.app-root.dark .mcq-option-correct {
+  background: rgba(34, 197, 94, 0.35);
+  border-color: rgba(34, 197, 94, 0.8);
+  color: #bbf7d0;
+}
+
+.app-root.dark .mcq-option-wrong {
+  background: rgba(220, 38, 38, 0.3);
+  border-color: rgba(220, 38, 38, 0.7);
+  color: #fecaca;
+}
+
+.app-root.dark .mcq-option-right-answer {
+  background: rgba(16, 185, 129, 0.25);
+  border-color: rgba(16, 185, 129, 0.6);
+  color: #a7f3d0;
+}
+
+/* Submit row spacing */
+.submit-row {
+  margin-top: 16px;
+  display: flex;
+  justify-content: flex-start;
+}
+
+.file-warning {
+  font-size: 0.82rem;
+  color: #b45309; /* amber-700 */
+  margin-top: 2px;
+}
+
+.app-root.dark .file-warning {
+  color: #fbbf24; /* amber-400 */
+}
+
+/* Additional MCQ states after submission */
+.mcq-card-correct {
+  border-color: #22c55e;
+}
+
+.mcq-card-wrong {
+  border-color: #ef4444;
+}
+
+.mcq-option-correct {
+  background: #dcfce7;
+}
+
+.mcq-option-correct-ghost {
+  background: rgba(34, 197, 94, 0.12);
+}
+
+.mcq-option-wrong {
+  background: #fee2e2;
+}
+
+/* Small snippet under each question after submission */
+.mcq-xai-snippet {
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px dashed rgba(148, 163, 184, 0.6);
+  font-size: 0.85rem;
+  color: #4b5563;
+}
+
+.app-root.dark .mcq-xai-snippet {
+  color: #e5e7eb;
+}
+
+.card-left-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.file-warning {
+  font-size: 0.82rem;
+  color: #b91c1c;
+}
+
+/* Option styling after submit */
+.mcq-option-wrong {
+  background: #fee2e2;
+  border: 1px solid #b91c1c;
+}
+
+.mcq-option-correct {
+  background: #dcfce7;
+  border: 1px solid #16a34a;
+}
+
+/* Make sure text is readable in dark mode */
+.app-root.dark .mcq-option-wrong {
+  background: rgba(248, 113, 113, 0.2);
+  border-color: #fecaca;
+}
+
+.app-root.dark .mcq-option-correct {
+  background: rgba(34, 197, 94, 0.2);
+  border-color: #bbf7d0;
+}
