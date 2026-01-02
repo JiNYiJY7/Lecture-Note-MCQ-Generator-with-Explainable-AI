@@ -36,7 +36,7 @@ To enable the **Offline Fallback** (so the app works without internet), you must
 1. **Download Ollama**: Get it from [ollama.com](https://ollama.com).
 2. **Pull the Model**: Open your terminal and run:
    ```bash
-   ollama run llama3.2
+   ollama run llama3.2:1b
 
 
 ## Backend
