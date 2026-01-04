@@ -23,11 +23,10 @@ from .tools import (
 
 # --- CONFIGURATION ---
 ONLINE_MODEL = "deepseek/deepseek-chat"
-OFFLINE_MODEL = "ollama/llama3.2:1b"  # Explicitly matches your local model
+OFFLINE_MODEL = "ollama/llama3.2:1b"
 
-# --- SHARED INSTRUCTION ---
-# (Keeping your detailed prompt engineering intact)
-shared_instruction = (
+# --- Online INSTRUCTION ---
+online_instruction = (
     "CRITICAL RULES - READ CAREFULLY:\n\n"
 
     "1. WHEN USER ASKS TO CHECK AN ANSWER:\n"
@@ -55,11 +54,13 @@ shared_instruction = (
     "- 'Let me check your answer...' \n"
     "- 'Based on the lecture...' \n"
     "- 'The tool says...' \n"
-    "- Any text except the tool's output \n\n"
+    "- Any text except the tool's output \n"
+    "- Bold usage (** **) \n\n"
 
     "5. FOR OTHER QUESTIONS (not answer checking):\n"
-    "- Be concise and helpful (1-2 sentences max)\n"
+    "- Be concise and helpful (50 words max)\n"
     "- Stay within lecture content\n\n"
+    "- If the lecture context is missing or doesn't fully explain a concept, use your own general knowledge to provide a clear, helpful explanation.\n\n"
 
     "AVAILABLE TOOLS:\n"
     "- explain_mcq_answer_tool(question_id, student_answer_label): RETURNS COMPLETE RESPONSE - OUTPUT VERBATIM\n"
@@ -69,6 +70,14 @@ shared_instruction = (
     "- highlight_key_points(top_k)\n"
     "- generate_mcq(n, difficulty)\n"
     "- topic_review()\n"
+)
+
+offline_instruction = (
+    "You are a helpful, concise AI Tutor.\n"
+    "Answer the user's questions clearly using the provided lecture context.\n"
+    "Keep your answers short (under 50 words) and direct.\n"
+    "Do not mention tools or technical details.\n"
+    "Do not state your name. \n\n"
 )
 
 shared_tools = [
@@ -82,32 +91,33 @@ shared_tools = [
 ]
 
 # --- 1. ONLINE AGENT (Strictly DeepSeek) ---
-# No fallbacks here. If it fails, it fails (so we know).
 online_agent = Agent(
     name="LN_MCQ_Chatbot_Online",
     model=LiteLlm(model=ONLINE_MODEL, timeout=120),
     description="Online Tutor (DeepSeek)",
-    instruction=shared_instruction,
+    instruction=online_instruction,
     tools=shared_tools
 )
 
 # --- 2. OFFLINE AGENT (Strictly Llama 3.2) ---
-# Direct connection to Ollama. No attempt to connect to the internet.
+# ✅ FIXED: Force api_base to localhost so it never tries to go online
 offline_agent = Agent(
-    name="LN_MCQ_Chatbot_Offline",
-    model=LiteLlm(model=OFFLINE_MODEL, timeout=120),
+    name="AI_Tutor",
+    model=LiteLlm(
+        model=OFFLINE_MODEL,
+        timeout=120,
+        api_base="http://localhost:11434"
+    ),
     description="Offline Tutor (Llama 3.2)",
-    instruction=shared_instruction,
-    tools=shared_tools
+    instruction=offline_instruction,
+    tools=[]
 )
-
 # --- EXPORTS ---
 
 # 1. Apps (Used by router.py for switching)
 online_app = App(name="mcq_chatbot_online", root_agent=online_agent)
 offline_app = App(name="mcq_chatbot_offline", root_agent=offline_agent)
 
-# 2. Aliases (For backward compatibility with __init__.py)
-# We map default 'root_agent' to online, but specific logic will import the ones above.
+# 2. Aliases
 root_agent = online_agent
 app = online_app

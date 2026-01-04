@@ -69,7 +69,10 @@ export function ResultsPage({
     totalQuestions > 0 ? Math.round((score / totalQuestions) * 100) : 0;
   const incorrect = totalQuestions - score;
 
-  // ✅ Per-question follow-up chat state (ResultsPage only)
+  // 1. READ OFFLINE PREFERENCE
+  const useOffline = localStorage.getItem("use_offline_mode") === "true";
+
+  // Per-question follow-up chat state
   const [followups, setFollowups] = useState<Record<number, FollowState>>({});
 
   const getPerformanceMessage = () => {
@@ -169,7 +172,6 @@ export function ResultsPage({
     doc.save(filename);
   };
 
-  // ✅ IMPORTANT: when updating followups, ONLY use `prev` (never read outer followups)
   const getFU = (prev: Record<number, FollowState>, qid: number): FollowState => {
     return prev[qid] ?? DEFAULT_FOLLOW;
   };
@@ -191,21 +193,19 @@ export function ResultsPage({
   const askFollowUp = async (q: QuestionResult) => {
     const qid = q.questionId;
 
-    // Read current input (ok to read outer once here)
     const current = followups[qid] ?? DEFAULT_FOLLOW;
     const text = (current.input ?? "").trim();
     if (!text) return;
 
     const userMsg: FollowMsg = { id: Date.now(), sender: "user", text };
 
-    // push user msg + set loading + CLEAR input (using prev)
     setFollowups((prev) => {
       const st = getFU(prev, qid);
       return {
         ...prev,
         [qid]: {
           ...st,
-          input: "", // ✅ clear immediately so it won't reappear
+          input: "",
           loading: true,
           error: null,
           messages: [...(st.messages ?? []), userMsg],
@@ -213,7 +213,7 @@ export function ResultsPage({
       };
     });
 
-    // Build a context-rich prompt so quiz follow-ups are as useful as learn-mode
+    // Updated Prompt for detailed answers
     const optionsBlock = JSON.stringify(q.options ?? []);
     const selected = q.selectedLabel ?? "";
     const correct = q.correctLabel ?? "";
@@ -233,18 +233,32 @@ MCQ Context:
 - Current explanation shown: "${baseExplanation}"
 
 Please:
-- Answer clearly in 3–6 short sentences.
-- If I am confused about a concept, explain the concept briefly.
+- Provide a detailed and comprehensive explanation.
+- If I am confused about a concept, explain the concept thoroughly.
 - If possible, point out which option text supports the answer.
+- Do not include 'AI_Tutor' in front.
 `.trim();
 
     try {
-      const resp = await api.sendChatMessage(qid, prompt);
-      const aiText = String(resp?.response ?? "").trim();
+      // ✅ FIX 1: Pass useOffline to the API call
+      const resp = await api.sendChatMessage(String(qid), prompt, useOffline);
+
+      // ✅ FIX 2: Handle both String and Object responses safely
+      // This prevents "undefined" or [object Object] issues
+      let aiText = "";
+      if (typeof resp === "string") {
+          aiText = resp;
+      } else if (resp && typeof resp === "object") {
+          // @ts-ignore
+          aiText = resp.response || resp.message || resp.content || JSON.stringify(resp);
+      }
+
+      aiText = aiText.trim();
+
       const aiMsg: FollowMsg = {
         id: Date.now() + 1,
         sender: "ai",
-        text: aiText || "No response.",
+        text: aiText || "No response received.",
       };
 
       setFollowups((prev) => {
@@ -256,7 +270,6 @@ Please:
             loading: false,
             error: null,
             messages: [...(st.messages ?? []), aiMsg],
-            // input stays as "" (do not restore)
           },
         };
       });
@@ -295,10 +308,7 @@ Please:
               </div>
 
               <h2 className="text-5xl">{percentage}%</h2>
-
-              <p className="text-xl text-muted-foreground">
-                {getPerformanceMessage()}
-              </p>
+              <p className="text-xl text-muted-foreground">{getPerformanceMessage()}</p>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -308,14 +318,12 @@ Please:
                   <p className="text-3xl">{totalQuestions}</p>
                 </CardContent>
               </Card>
-
               <Card>
                 <CardContent className="p-6 text-center">
                   <p className="text-muted-foreground mb-2">Correct Answers</p>
                   <p className="text-3xl text-green-600">{score}</p>
                 </CardContent>
               </Card>
-
               <Card>
                 <CardContent className="p-6 text-center">
                   <p className="text-muted-foreground mb-2">Incorrect Answers</p>
@@ -326,82 +334,39 @@ Please:
 
             <div className="flex flex-col md:flex-row justify-center pt-4 gap-3">
               <Button size="lg" onClick={onReturnHome} className="gap-2">
-                <Home className="size-5" />
-                Return to Home
+                <Home className="size-5" /> Return to Home
               </Button>
-
-              <Button
-                size="lg"
-                variant="outline"
-                className="gap-2"
-                disabled={!details || details.length === 0}
-                onClick={() => generatePdf("q_only")}
-              >
-                <Download className="size-5" />
-                PDF: Question Only
+              <Button size="lg" variant="outline" className="gap-2" disabled={!details || details.length === 0} onClick={() => generatePdf("q_only")}>
+                <Download className="size-5" /> PDF: Question Only
               </Button>
-
-              <Button
-                size="lg"
-                variant="outline"
-                className="gap-2"
-                disabled={!details || details.length === 0}
-                onClick={() => generatePdf("q_ans")}
-              >
-                <Download className="size-5" />
-                PDF: Marking Scheme
+              <Button size="lg" variant="outline" className="gap-2" disabled={!details || details.length === 0} onClick={() => generatePdf("q_ans")}>
+                <Download className="size-5" /> PDF: Marking Scheme
               </Button>
-
-              <Button
-                size="lg"
-                variant="outline"
-                className="gap-2"
-                disabled={!details || details.length === 0}
-                onClick={() => generatePdf("q_ans_exp")}
-              >
-                <Download className="size-5" />
-                PDF: Marking Scheme + Explainations
+              <Button size="lg" variant="outline" className="gap-2" disabled={!details || details.length === 0} onClick={() => generatePdf("q_ans_exp")}>
+                <Download className="size-5" /> PDF: Marking Scheme + Explanations
               </Button>
             </div>
           </CardContent>
         </Card>
 
-        {/* Question-by-question */}
         {details.length > 0 && (
           <div className="space-y-4">
-            <h2 className="text-xl font-semibold">
-              Question-by-question explanations
-            </h2>
+            <h2 className="text-xl font-semibold">Question-by-question explanations</h2>
 
             {details.map((q, index) => {
               const selected = getChoiceLetter(q.selectedLabel);
-              const correct =
-                getChoiceLetter(q.correctLabel) || (q.isCorrect ? selected : "");
-
+              const correct = getChoiceLetter(q.correctLabel) || (q.isCorrect ? selected : "");
               const answered = !!selected;
               const hasCorrect = !!correct;
-
               const qid = q.questionId;
               const fu = followups[qid] ?? DEFAULT_FOLLOW;
 
               return (
-                <Card
-                  key={qid}
-                  className="bg-white/90 backdrop-blur border border-slate-200"
-                >
+                <Card key={qid} className="bg-white/90 backdrop-blur border border-slate-200">
                   <CardHeader className="flex flex-row items-center justify-between gap-2">
-                    <CardTitle className="text-base font-semibold">
-                      Q{index + 1}. {q.stem}
-                    </CardTitle>
-
+                    <CardTitle className="text-base font-semibold">Q{index + 1}. {q.stem}</CardTitle>
                     {q.selectedLabel && (
-                      <span
-                        className={`px-3 py-1 rounded-full text-xs font-semibold ${
-                          q.isCorrect
-                            ? "bg-emerald-100 text-emerald-700"
-                            : "bg-red-100 text-red-700"
-                        }`}
-                      >
+                      <span className={`px-3 py-1 rounded-full text-xs font-semibold ${q.isCorrect ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}>
                         {q.isCorrect ? "Correct" : "Incorrect"}
                       </span>
                     )}
@@ -411,71 +376,30 @@ Please:
                     <div className="space-y-2">
                       {(q.options ?? []).map((opt) => {
                         const optLetter = getOptionLetter(opt.label);
+                        const isSelected = answered && optLetter && optLetter === selected;
+                        const isCorrectOption = hasCorrect && optLetter && optLetter === correct;
 
-                        const isSelected =
-                          answered && optLetter && optLetter === selected;
-                        const isCorrectOption =
-                          hasCorrect && optLetter && optLetter === correct;
-
-                        // ✅ FORCE inline colors
                         let backgroundColor = "rgba(255,255,255,0.85)";
                         let borderColor = "#e2e8f0";
                         let borderWidth = 1;
 
                         if (answered && isCorrectOption) {
-                          backgroundColor = "#d1fae5"; // light green
+                          backgroundColor = "#d1fae5";
                           borderColor = "#10b981";
                           borderWidth = 2;
                         }
-
-                        if (
-                          answered &&
-                          isSelected &&
-                          hasCorrect &&
-                          selected !== correct
-                        ) {
-                          backgroundColor = "#fee2e2"; // light red
+                        if (answered && isSelected && hasCorrect && selected !== correct) {
+                          backgroundColor = "#fee2e2";
                           borderColor = "#ef4444";
                           borderWidth = 2;
                         }
 
                         return (
-                          <div
-                            key={opt.label}
-                            style={{
-                              backgroundColor,
-                              borderColor,
-                              borderWidth,
-                              borderStyle: "solid",
-                              borderRadius: 10,
-                              padding: "10px 12px",
-                              display: "flex",
-                              gap: 8,
-                            }}
-                          >
-                            <span style={{ fontWeight: 700, minWidth: 24 }}>
-                              {optLetter || String(opt.label).trim()}.
-                            </span>
-
+                          <div key={opt.label} style={{ backgroundColor, borderColor, borderWidth, borderStyle: "solid", borderRadius: 10, padding: "10px 12px", display: "flex", gap: 8 }}>
+                            <span style={{ fontWeight: 700, minWidth: 24 }}>{optLetter || String(opt.label).trim()}.</span>
                             <span style={{ flex: 1 }}>{opt.text}</span>
-
-                            {answered && isCorrectOption && (
-                              <span
-                                style={{ fontWeight: 700, color: "#047857" }}
-                              >
-                                ✓
-                              </span>
-                            )}
-                            {answered &&
-                              isSelected &&
-                              hasCorrect &&
-                              selected !== correct && (
-                                <span
-                                  style={{ fontWeight: 700, color: "#b91c1c" }}
-                                >
-                                  ✗
-                                </span>
-                              )}
+                            {answered && isCorrectOption && <span style={{ fontWeight: 700, color: "#047857" }}>✓</span>}
+                            {answered && isSelected && hasCorrect && selected !== correct && <span style={{ fontWeight: 700, color: "#b91c1c" }}>✗</span>}
                           </div>
                         );
                       })}
@@ -484,65 +408,33 @@ Please:
                     <div className="mt-2 text-sm">
                       {q.selectedLabel ? (
                         q.isCorrect ? (
-                          <p className="mb-1" style={{ color: "#047857" }}>
-                            You selected{" "}
-                            <span style={{ fontWeight: 700 }}>
-                              option {q.selectedLabel}
-                            </span>
-                            , which is correct.
-                          </p>
+                          <p className="mb-1" style={{ color: "#047857" }}>You selected <span style={{ fontWeight: 700 }}>option {q.selectedLabel}</span>, which is correct.</p>
                         ) : (
-                          <p className="mb-1" style={{ color: "#b91c1c" }}>
-                            You selected{" "}
-                            <span style={{ fontWeight: 700 }}>
-                              option {q.selectedLabel}
-                            </span>
-                            {q.correctLabel && (
-                              <>
-                                , correct answer is{" "}
-                                <span style={{ fontWeight: 700 }}>
-                                  option {q.correctLabel}
-                                </span>
-                                .
-                              </>
-                            )}
-                          </p>
+                          <p className="mb-1" style={{ color: "#b91c1c" }}>You selected <span style={{ fontWeight: 700 }}>option {q.selectedLabel}</span>{q.correctLabel && <>, correct answer is <span style={{ fontWeight: 700 }}>option {q.correctLabel}</span>.</>}</p>
                         )
                       ) : (
-                        <p className="mb-1 text-muted-foreground">
-                          You did not answer this question.
-                        </p>
+                        <p className="mb-1 text-muted-foreground">You did not answer this question.</p>
                       )}
 
-                      <p className="text-sm text-slate-700 whitespace-pre-line">
-                        {q.explanation && q.explanation.trim().length > 0
-                          ? q.explanation
-                          : "No explanation available for this question."}
+                      {/* ✅ CSS FIX: Ensure text wraps properly */}
+                      <p className="text-sm text-slate-700 whitespace-pre-wrap break-words">
+                        {q.explanation && q.explanation.trim().length > 0 ? q.explanation : "No explanation available for this question."}
                       </p>
                     </div>
 
-                    {/* ✅ NEW: per-question follow-up box (works for Quiz too) */}
                     <div className="pt-3 border-t border-slate-200/60">
-                      <div className="text-xs font-semibold text-slate-700 mb-2">
-                        Ask a follow-up question (this question only)
-                      </div>
+                      <div className="text-xs font-semibold text-slate-700 mb-2">Ask a follow-up question (this question only)</div>
 
-                      {/* history */}
                       {fu.messages.length > 0 && (
                         <div className="mb-3 space-y-2">
                           {fu.messages.map((m) => (
-                            <div
-                              key={m.id}
-                              className={[
-                                "text-sm whitespace-pre-line",
-                                m.sender === "user"
-                                  ? "text-slate-900"
-                                  : "text-slate-700",
+                            <div key={m.id} className={[
+                                // ✅ CSS FIX: Added 'break-words' and 'whitespace-pre-wrap'
+                                "text-sm whitespace-pre-wrap break-words",
+                                m.sender === "user" ? "text-slate-900" : "text-slate-700",
                               ].join(" ")}
                             >
-                              <span className="font-semibold">
-                                {m.sender === "user" ? "You: " : "Tutor: "}
-                              </span>
+                              <span className="font-semibold">{m.sender === "user" ? "You: " : "Tutor: "}</span>
                               {m.text}
                             </div>
                           ))}
@@ -555,31 +447,16 @@ Please:
                           placeholder="E.g., Why is option D correct?"
                           value={fu.input}
                           onChange={(e) => setFollowInput(qid, e.target.value)}
-                          onKeyDown={(e) =>
-                            e.key === "Enter" && !fu.loading && askFollowUp(q)
-                          }
+                          onKeyDown={(e) => e.key === "Enter" && !fu.loading && askFollowUp(q)}
                           disabled={fu.loading}
                         />
-                        <Button
-                          size="icon"
-                          className="rounded-full"
-                          onClick={() => askFollowUp(q)}
-                          disabled={!fu.input.trim() || fu.loading}
-                        >
+                        <Button size="icon" className="rounded-full" onClick={() => askFollowUp(q)} disabled={!fu.input.trim() || fu.loading}>
                           <Send className="w-4 h-4" />
                         </Button>
                       </div>
 
-                      {fu.loading && (
-                        <div className="text-xs text-slate-500 mt-2">
-                          Tutor is thinking…
-                        </div>
-                      )}
-                      {fu.error && (
-                        <div className="text-xs text-red-600 mt-2">
-                          {fu.error}
-                        </div>
-                      )}
+                      {fu.loading && <div className="text-xs text-slate-500 mt-2">Tutor is thinking…</div>}
+                      {fu.error && <div className="text-xs text-red-600 mt-2">{fu.error}</div>}
                     </div>
                   </CardContent>
                 </Card>
