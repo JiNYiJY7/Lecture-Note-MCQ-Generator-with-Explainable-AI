@@ -1,3 +1,4 @@
+# app/modules/xai/schemas.py
 """Pydantic schemas for the XAI (explanation) module."""
 
 from __future__ import annotations
@@ -17,16 +18,16 @@ class XAIExplanationRequest(BaseModel):
     """
     Request to explain a student's answer.
 
-    There are two modes:
+    Two modes:
 
-    1) DB mode (classic):
-       - question_id is provided (non-zero)
+    1) DB mode:
+       - question_id provided (non-zero)
        - backend loads question + options + lecture text from the database
 
-    2) Stateless mode (for the current frontend):
+    2) Stateless mode:
        - question_id is None or 0
-       - question_stem, options, correct_label, lecture_text are provided
-         directly in the payload.
+       - question_stem, options, correct_label provided in payload
+       - lecture_text is optional (used only for evidence retrieval)
     """
 
     question_id: Optional[int] = None
@@ -36,7 +37,10 @@ class XAIExplanationRequest(BaseModel):
     question_stem: Optional[str] = None
     options: Optional[List[XAIOption]] = None
     correct_label: Optional[str] = None
-    lecture_text: Optional[str] = None
+    lecture_text: Optional[str] = None  # optional now
+
+    # Controls
+    include_evidence: bool = False
 
 
 class XAIExplanationResponse(BaseModel):

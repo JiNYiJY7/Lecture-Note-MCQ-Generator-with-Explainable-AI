@@ -17,7 +17,7 @@ interface ResultsPageProps {
 
 type PdfVariant = "q_only" | "q_ans" | "q_ans_exp";
 
-/** Extract A-D from selected/correct text safely */
+/** Extract A–D from selected/correct text safely */
 function getChoiceLetter(x: any): string {
   const s = String(x ?? "").trim();
   if (!s) return "";
@@ -69,7 +69,7 @@ export function ResultsPage({
     totalQuestions > 0 ? Math.round((score / totalQuestions) * 100) : 0;
   const incorrect = totalQuestions - score;
 
-  // 1. READ OFFLINE PREFERENCE
+  // Read offline preference
   const useOffline = localStorage.getItem("use_offline_mode") === "true";
 
   // Per-question follow-up chat state
@@ -172,7 +172,10 @@ export function ResultsPage({
     doc.save(filename);
   };
 
-  const getFU = (prev: Record<number, FollowState>, qid: number): FollowState => {
+  const getFU = (
+    prev: Record<number, FollowState>,
+    qid: number
+  ): FollowState => {
     return prev[qid] ?? DEFAULT_FOLLOW;
   };
 
@@ -190,15 +193,95 @@ export function ResultsPage({
     });
   };
 
+  const looksLikeChinese = (text: string) => /[\u4e00-\u9fff]/.test(text);
+
+  // ---------------------------
+  // NEW: Small-talk guard
+  // Prevent illogical "Incorrect..." replies when user says "Thanks", "Good", etc.
+  // ---------------------------
+  const isSmallTalk = (text: string) => {
+    const t = (text || "").trim().toLowerCase();
+    if (!t) return false;
+
+    // English acknowledgements / closings
+    const english =
+      /^(thanks|thank you|thx|tq|ty|nice|good|ok|okay|great|cool|awesome|lol|haha|hehe|bye|goodbye|see you|alright|sure)\b/.test(
+        t
+      );
+
+    // Malay acknowledgements
+    const malay =
+      /^(terima kasih|tq|ok|baik|mantap|bagus|hehe|haha|bye)\b/.test(t);
+
+    // Chinese common chat
+    const chinese =
+      /^(谢谢|谢啦|多谢|感谢|ok|好的|行|可以|不错|好|哈哈|呵呵|笑死|拜拜|再见|下次见)\b/.test(
+        t
+      );
+
+    // Very short acknowledgements
+    const veryShort =
+      t.length <= 4 &&
+      ["ok", "kk", "ya", "yes", "no", "tq", "thx", "ty"].includes(t);
+
+    return english || malay || chinese || veryShort;
+  };
+
+  const smallTalkReply = (text: string) => {
+    const hasChinese = looksLikeChinese(text);
+    if (hasChinese) {
+      return "不客气～如果你愿意，我也可以用一句话帮你总结这题的关键点，或者给你一个类似练习题。";
+    }
+    return "You’re welcome! If you want, I can summarize the key idea in one sentence or give you a similar practice question.";
+  };
+
+  /**
+   * We want full-sentence outputs on Results Page too.
+   * Strategy:
+   * 1) If user asks "why/compare/keywords/evidence" and the student selected an answer,
+   *    use /xai/explain with include_evidence=true (stable, full sentences from service.py).
+   * 2) For other casual questions (definitions, jokes, coffee, etc.), use /xai/chat BUT
+   *    inject full MCQ context + strict formatting rules (no bullet points).
+   * 3) NEW: If user says small-talk (e.g., "Thanks"), reply locally and do NOT call AI.
+   */
   const askFollowUp = async (q: QuestionResult) => {
     const qid = q.questionId;
 
     const current = followups[qid] ?? DEFAULT_FOLLOW;
-    const text = (current.input ?? "").trim();
-    if (!text) return;
+    const userText = (current.input ?? "").trim();
+    if (!userText) return;
 
-    const userMsg: FollowMsg = { id: Date.now(), sender: "user", text };
+    const userMsg: FollowMsg = {
+      id: Date.now(),
+      sender: "user",
+      text: userText,
+    };
 
+    // NEW: Handle small talk locally (no AI calls)
+    if (isSmallTalk(userText)) {
+      const aiMsg: FollowMsg = {
+        id: Date.now() + 1,
+        sender: "ai",
+        text: smallTalkReply(userText),
+      };
+
+      setFollowups((prev) => {
+        const st = getFU(prev, qid);
+        return {
+          ...prev,
+          [qid]: {
+            ...st,
+            input: "",
+            loading: false,
+            error: null,
+            messages: [...(st.messages ?? []), userMsg, aiMsg],
+          },
+        };
+      });
+      return;
+    }
+
+    // Normal flow: add the user message and show loading
     setFollowups((prev) => {
       const st = getFU(prev, qid);
       return {
@@ -213,47 +296,144 @@ export function ResultsPage({
       };
     });
 
-    // Updated Prompt for detailed answers
-    const optionsBlock = JSON.stringify(q.options ?? []);
-    const selected = q.selectedLabel ?? "";
-    const correct = q.correctLabel ?? "";
-    const baseExplanation = q.explanation ?? "";
+    const selectedLabel = String(q.selectedLabel ?? "").trim();
+    const correctLabel = String(q.correctLabel ?? "").trim();
+    const stem = String(q.stem ?? "").trim();
+    const optionsArr = q.options ?? [];
 
-    const prompt = `
-You are my AI tutor. Answer my follow-up question based on this MCQ context.
+    const lower = userText.toLowerCase();
 
-My follow-up question: "${text}"
+    const wantsExplain =
+      lower.includes("why") ||
+      lower.includes("compare") ||
+      lower.includes("keyword") ||
+      lower.includes("evidence") ||
+      lower.includes("from notes") ||
+      lower.includes("cite") ||
+      lower.includes("explain");
 
-MCQ Context:
-- Question ID: ${qid}
-- Stem: "${q.stem}"
-- Options: ${optionsBlock}
-- My selected option: "${selected}"
-- Correct option (if known): "${correct}"
-- Current explanation shown: "${baseExplanation}"
+    const wantsDefinitions =
+      lower.includes("define") ||
+      lower.includes("definition") ||
+      lower.includes("1–2 sentence") ||
+      lower.includes("1-2 sentence") ||
+      lower.includes("each option") ||
+      lower.includes("a/b/c/d");
 
-Please:
-- Provide a detailed and comprehensive explanation.
-- If I am confused about a concept, explain the concept thoroughly.
-- If possible, point out which option text supports the answer.
-- Do not include 'AI_Tutor' in front.
-`.trim();
+    const wantsCoffee =
+      lower.includes("coffee") ||
+      lower.includes("latte") ||
+      lower.includes("espresso") ||
+      lower.includes("cappuccino");
+
+    const wantsJoke =
+      lower.includes("joke") ||
+      lower.includes("funny") ||
+      lower.includes("pun") ||
+      lower.includes("meme");
+
+    const userWantsChinese = looksLikeChinese(userText);
 
     try {
-      // ✅ FIX 1: Pass useOffline to the API call
-      const resp = await api.sendChatMessage(String(qid), prompt, useOffline);
+      // Path 1: Use /xai/explain to guarantee full-sentence style for explanations.
+      if (wantsExplain && selectedLabel) {
+        const explanation = await api.getExplanation(qid, selectedLabel, true);
 
-      // ✅ FIX 2: Handle both String and Object responses safely
-      // This prevents "undefined" or [object Object] issues
-      let aiText = "";
-      if (typeof resp === "string") {
-          aiText = resp;
-      } else if (resp && typeof resp === "object") {
-          // @ts-ignore
-          aiText = resp.response || resp.message || resp.content || JSON.stringify(resp);
+        const aiMsg: FollowMsg = {
+          id: Date.now() + 1,
+          sender: "ai",
+          text: (explanation?.reasoning || "").trim() || "No response received.",
+        };
+
+        setFollowups((prev) => {
+          const st = getFU(prev, qid);
+          return {
+            ...prev,
+            [qid]: {
+              ...st,
+              loading: false,
+              error: null,
+              messages: [...(st.messages ?? []), aiMsg],
+            },
+          };
+        });
+        return;
       }
 
-      aiText = aiText.trim();
+      // If user asked for explanation but no answer was selected
+      if (wantsExplain && !selectedLabel) {
+        const aiMsg: FollowMsg = {
+          id: Date.now() + 1,
+          sender: "ai",
+          text:
+            "You did not select an answer for this question, so I cannot compare your choice to the correct option. Please review the highlighted correct option and the explanation above, then ask what part is confusing.",
+        };
+        setFollowups((prev) => {
+          const st = getFU(prev, qid);
+          return {
+            ...prev,
+            [qid]: {
+              ...st,
+              loading: false,
+              error: null,
+              messages: [...(st.messages ?? []), aiMsg],
+            },
+          };
+        });
+        return;
+      }
+
+      // Path 2: For definitions / coffee / jokes / other free-form, use /xai/chat with strict rules and context.
+      const optionsText = optionsArr
+        .map((o) => `${o.label}. ${o.text ?? ""}`.trim())
+        .join("\n");
+      const baseExplanation = String(q.explanation ?? "").trim();
+
+      const rules = [
+        "RULES:",
+        "- Do NOT mention missing lecture context or say you cannot see the question.",
+        "- Answer in 2–4 complete sentences.",
+        "- Do NOT use bullet points, numbered lists, markdown headings, or bold formatting.",
+        "- Be concise and use the question keywords when relevant.",
+        userWantsChinese ? "- Reply in Chinese." : "- Reply in English.",
+      ].join("\n");
+
+      const taskHint = wantsDefinitions
+        ? "TASK: Give a 1–2 sentence definition for each option (A/B/C/D), then state which option matches the question best and why."
+        : wantsCoffee
+        ? "TASK: Give a coffee-themed answer that still helps the student understand the concept (keep it short)."
+        : wantsJoke
+        ? "TASK: Tell a short, student-friendly joke related to the topic, then add one sentence that connects back to the question."
+        : "TASK: Answer the user's follow-up question using the MCQ context below.";
+
+      const prompt = [
+        "You are an AI Tutor for this MCQ follow-up.",
+        rules,
+        "",
+        taskHint,
+        "",
+        "MCQ CONTEXT:",
+        `- Question: ${stem}`,
+        "Options:",
+        optionsText || "(No options provided.)",
+        `- Student selected: ${selectedLabel || "(none)"}`,
+        `- Correct answer (if known): ${correctLabel || "(unknown)"}`,
+        `- Explanation already shown: ${baseExplanation || "(none)"}`,
+        "",
+        `USER QUESTION: ${userText}`,
+      ].join("\n");
+
+      const resp = await api.sendChatMessage(String(qid), prompt, useOffline);
+
+      // api.sendChatMessage returns a string in your api.js; keep this robust anyway
+      let aiText = "";
+      if (typeof resp === "string") aiText = resp;
+      else if (resp && typeof resp === "object") {
+        // @ts-ignore
+        aiText = resp.response || resp.message || resp.content || JSON.stringify(resp);
+      }
+
+      aiText = (aiText || "").trim();
 
       const aiMsg: FollowMsg = {
         id: Date.now() + 1,
@@ -308,7 +488,9 @@ Please:
               </div>
 
               <h2 className="text-5xl">{percentage}%</h2>
-              <p className="text-xl text-muted-foreground">{getPerformanceMessage()}</p>
+              <p className="text-xl text-muted-foreground">
+                {getPerformanceMessage()}
+              </p>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -336,13 +518,31 @@ Please:
               <Button size="lg" onClick={onReturnHome} className="gap-2">
                 <Home className="size-5" /> Return to Home
               </Button>
-              <Button size="lg" variant="outline" className="gap-2" disabled={!details || details.length === 0} onClick={() => generatePdf("q_only")}>
+              <Button
+                size="lg"
+                variant="outline"
+                className="gap-2"
+                disabled={!details || details.length === 0}
+                onClick={() => generatePdf("q_only")}
+              >
                 <Download className="size-5" /> PDF: Question Only
               </Button>
-              <Button size="lg" variant="outline" className="gap-2" disabled={!details || details.length === 0} onClick={() => generatePdf("q_ans")}>
+              <Button
+                size="lg"
+                variant="outline"
+                className="gap-2"
+                disabled={!details || details.length === 0}
+                onClick={() => generatePdf("q_ans")}
+              >
                 <Download className="size-5" /> PDF: Marking Scheme
               </Button>
-              <Button size="lg" variant="outline" className="gap-2" disabled={!details || details.length === 0} onClick={() => generatePdf("q_ans_exp")}>
+              <Button
+                size="lg"
+                variant="outline"
+                className="gap-2"
+                disabled={!details || details.length === 0}
+                onClick={() => generatePdf("q_ans_exp")}
+              >
                 <Download className="size-5" /> PDF: Marking Scheme + Explanations
               </Button>
             </div>
@@ -351,22 +551,36 @@ Please:
 
         {details.length > 0 && (
           <div className="space-y-4">
-            <h2 className="text-xl font-semibold">Question-by-question explanations</h2>
+            <h2 className="text-xl font-semibold">
+              Question-by-question explanations
+            </h2>
 
             {details.map((q, index) => {
               const selected = getChoiceLetter(q.selectedLabel);
-              const correct = getChoiceLetter(q.correctLabel) || (q.isCorrect ? selected : "");
+              const correct =
+                getChoiceLetter(q.correctLabel) || (q.isCorrect ? selected : "");
               const answered = !!selected;
               const hasCorrect = !!correct;
               const qid = q.questionId;
               const fu = followups[qid] ?? DEFAULT_FOLLOW;
 
               return (
-                <Card key={qid} className="bg-white/90 backdrop-blur border border-slate-200">
+                <Card
+                  key={qid}
+                  className="bg-white/90 backdrop-blur border border-slate-200"
+                >
                   <CardHeader className="flex flex-row items-center justify-between gap-2">
-                    <CardTitle className="text-base font-semibold">Q{index + 1}. {q.stem}</CardTitle>
+                    <CardTitle className="text-base font-semibold">
+                      Q{index + 1}. {q.stem}
+                    </CardTitle>
                     {q.selectedLabel && (
-                      <span className={`px-3 py-1 rounded-full text-xs font-semibold ${q.isCorrect ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}>
+                      <span
+                        className={`px-3 py-1 rounded-full text-xs font-semibold ${
+                          q.isCorrect
+                            ? "bg-emerald-100 text-emerald-700"
+                            : "bg-red-100 text-red-700"
+                        }`}
+                      >
                         {q.isCorrect ? "Correct" : "Incorrect"}
                       </span>
                     )}
@@ -376,8 +590,10 @@ Please:
                     <div className="space-y-2">
                       {(q.options ?? []).map((opt) => {
                         const optLetter = getOptionLetter(opt.label);
-                        const isSelected = answered && optLetter && optLetter === selected;
-                        const isCorrectOption = hasCorrect && optLetter && optLetter === correct;
+                        const isSelected =
+                          answered && optLetter && optLetter === selected;
+                        const isCorrectOption =
+                          hasCorrect && optLetter && optLetter === correct;
 
                         let backgroundColor = "rgba(255,255,255,0.85)";
                         let borderColor = "#e2e8f0";
@@ -388,18 +604,52 @@ Please:
                           borderColor = "#10b981";
                           borderWidth = 2;
                         }
-                        if (answered && isSelected && hasCorrect && selected !== correct) {
+                        if (
+                          answered &&
+                          isSelected &&
+                          hasCorrect &&
+                          selected !== correct
+                        ) {
                           backgroundColor = "#fee2e2";
                           borderColor = "#ef4444";
                           borderWidth = 2;
                         }
 
                         return (
-                          <div key={opt.label} style={{ backgroundColor, borderColor, borderWidth, borderStyle: "solid", borderRadius: 10, padding: "10px 12px", display: "flex", gap: 8 }}>
-                            <span style={{ fontWeight: 700, minWidth: 24 }}>{optLetter || String(opt.label).trim()}.</span>
+                          <div
+                            key={opt.label}
+                            style={{
+                              backgroundColor,
+                              borderColor,
+                              borderWidth,
+                              borderStyle: "solid",
+                              borderRadius: 10,
+                              padding: "10px 12px",
+                              display: "flex",
+                              gap: 8,
+                            }}
+                          >
+                            <span style={{ fontWeight: 700, minWidth: 24 }}>
+                              {optLetter || String(opt.label).trim()}.
+                            </span>
                             <span style={{ flex: 1 }}>{opt.text}</span>
-                            {answered && isCorrectOption && <span style={{ fontWeight: 700, color: "#047857" }}>✓</span>}
-                            {answered && isSelected && hasCorrect && selected !== correct && <span style={{ fontWeight: 700, color: "#b91c1c" }}>✗</span>}
+                            {answered && isCorrectOption && (
+                              <span
+                                style={{ fontWeight: 700, color: "#047857" }}
+                              >
+                                ✓
+                              </span>
+                            )}
+                            {answered &&
+                              isSelected &&
+                              hasCorrect &&
+                              selected !== correct && (
+                                <span
+                                  style={{ fontWeight: 700, color: "#b91c1c" }}
+                                >
+                                  ✗
+                                </span>
+                              )}
                           </div>
                         );
                       })}
@@ -408,33 +658,63 @@ Please:
                     <div className="mt-2 text-sm">
                       {q.selectedLabel ? (
                         q.isCorrect ? (
-                          <p className="mb-1" style={{ color: "#047857" }}>You selected <span style={{ fontWeight: 700 }}>option {q.selectedLabel}</span>, which is correct.</p>
+                          <p className="mb-1" style={{ color: "#047857" }}>
+                            You selected{" "}
+                            <span style={{ fontWeight: 700 }}>
+                              option {q.selectedLabel}
+                            </span>
+                            , which is correct.
+                          </p>
                         ) : (
-                          <p className="mb-1" style={{ color: "#b91c1c" }}>You selected <span style={{ fontWeight: 700 }}>option {q.selectedLabel}</span>{q.correctLabel && <>, correct answer is <span style={{ fontWeight: 700 }}>option {q.correctLabel}</span>.</>}</p>
+                          <p className="mb-1" style={{ color: "#b91c1c" }}>
+                            You selected{" "}
+                            <span style={{ fontWeight: 700 }}>
+                              option {q.selectedLabel}
+                            </span>
+                            {q.correctLabel && (
+                              <>
+                                , correct answer is{" "}
+                                <span style={{ fontWeight: 700 }}>
+                                  option {q.correctLabel}
+                                </span>
+                                .
+                              </>
+                            )}
+                          </p>
                         )
                       ) : (
-                        <p className="mb-1 text-muted-foreground">You did not answer this question.</p>
+                        <p className="mb-1 text-muted-foreground">
+                          You did not answer this question.
+                        </p>
                       )}
 
-                      {/* ✅ CSS FIX: Ensure text wraps properly */}
                       <p className="text-sm text-slate-700 whitespace-pre-wrap break-words">
-                        {q.explanation && q.explanation.trim().length > 0 ? q.explanation : "No explanation available for this question."}
+                        {q.explanation && q.explanation.trim().length > 0
+                          ? q.explanation
+                          : "No explanation available for this question."}
                       </p>
                     </div>
 
                     <div className="pt-3 border-t border-slate-200/60">
-                      <div className="text-xs font-semibold text-slate-700 mb-2">Ask a follow-up question (this question only)</div>
+                      <div className="text-xs font-semibold text-slate-700 mb-2">
+                        Ask a follow-up question (this question only)
+                      </div>
 
                       {fu.messages.length > 0 && (
                         <div className="mb-3 space-y-2">
                           {fu.messages.map((m) => (
-                            <div key={m.id} className={[
-                                // ✅ CSS FIX: Added 'break-words' and 'whitespace-pre-wrap'
+                            <div
+                              key={m.id}
+                              className={[
                                 "text-sm whitespace-pre-wrap break-words",
-                                m.sender === "user" ? "text-slate-900" : "text-slate-700",
+                                m.sender === "user"
+                                  ? "text-slate-900"
+                                  : "text-slate-700",
                               ].join(" ")}
                             >
-                              <span className="font-semibold">{m.sender === "user" ? "You: " : "Tutor: "}</span>
+                              <span className="font-semibold">
+                                {m.sender === "user" ? "You: " : "Tutor: "}
+                              </span>
                               {m.text}
                             </div>
                           ))}
@@ -447,16 +727,31 @@ Please:
                           placeholder="E.g., Why is option D correct?"
                           value={fu.input}
                           onChange={(e) => setFollowInput(qid, e.target.value)}
-                          onKeyDown={(e) => e.key === "Enter" && !fu.loading && askFollowUp(q)}
+                          onKeyDown={(e) =>
+                            e.key === "Enter" && !fu.loading && askFollowUp(q)
+                          }
                           disabled={fu.loading}
                         />
-                        <Button size="icon" className="rounded-full" onClick={() => askFollowUp(q)} disabled={!fu.input.trim() || fu.loading}>
+                        <Button
+                          size="icon"
+                          className="rounded-full"
+                          onClick={() => askFollowUp(q)}
+                          disabled={!fu.input.trim() || fu.loading}
+                        >
                           <Send className="w-4 h-4" />
                         </Button>
                       </div>
 
-                      {fu.loading && <div className="text-xs text-slate-500 mt-2">Tutor is thinking…</div>}
-                      {fu.error && <div className="text-xs text-red-600 mt-2">{fu.error}</div>}
+                      {fu.loading && (
+                        <div className="text-xs text-slate-500 mt-2">
+                          Tutor is thinking…
+                        </div>
+                      )}
+                      {fu.error && (
+                        <div className="text-xs text-red-600 mt-2">
+                          {fu.error}
+                        </div>
+                      )}
                     </div>
                   </CardContent>
                 </Card>

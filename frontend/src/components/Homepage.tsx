@@ -248,9 +248,12 @@ export function Homepage({ onStartQuiz }: HomepageProps) {
         <div className="max-w-7xl mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="bg-gradient-to-br from-blue-500 to-cyan-600 p-2.5 rounded-xl shadow-md">
-                <GraduationCap className="size-7 text-white" />
-              </div>
+              <img
+                  src="/LN-MCQ.png"
+                  alt="LN-MCQ Logo"
+                  className="h-14 w-14 object-contain"
+                  draggable={false}
+              />
               <div>
                 <h1 className="text-2xl font-bold text-slate-800">LN-MCQ</h1>
                 <p className="text-sm text-slate-500">Master any subject with AI-powered quizzes</p>

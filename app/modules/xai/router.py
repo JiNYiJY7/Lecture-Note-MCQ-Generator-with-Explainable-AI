@@ -1,8 +1,8 @@
+# app/modules/xai/router.py
 """FastAPI router for XAI explanations."""
 
 from __future__ import annotations
 
-import re
 import traceback
 from typing import Optional
 
@@ -26,55 +26,35 @@ class ChatRequest(BaseModel):
     user_id: str = "student_1"
     use_offline: Optional[bool] = False
 
+
 class ChatResponse(BaseModel):
     response: str
 
 
 # ----------------------------
-# Helper function to clean agent response
+# Minimal cleaner (preserve full sentences, avoid truncation)
 # ----------------------------
 def clean_agent_response(agent_text: str) -> str:
     """
-    Clean up the agent's response to ensure clean format.
+    Minimal cleanup: preserve full sentences and avoid aggressive truncation.
     """
     if not agent_text or not agent_text.strip():
         return "No response from AI Tutor."
 
-    # If it already has our format, return as is
-    if agent_text.startswith("Correct - ") or agent_text.startswith("Incorrect - "):
-        if not agent_text.endswith('.'):
-            agent_text += '.'
-        return agent_text
+    text = agent_text.strip()
 
-    # Try to extract our format via Regex
-    correct_match = re.search(r'Correct\s*-\s*([^\.]+\.?)', agent_text, re.IGNORECASE)
-    if correct_match:
-        explanation = correct_match.group(1).strip()
-        if not explanation.endswith('.'):
-            explanation += '.'
-        return f"Correct - {explanation}"
+    # Keep desired style as-is
+    if text.startswith("Correct.") or text.startswith("Incorrect."):
+        return text
 
-    incorrect_match = re.search(r'Incorrect\s*-\s*([^\.]+\.?)(?:\s*You likely chose this because\s*([^\.]+\.?))?',
-                                agent_text, re.IGNORECASE | re.DOTALL)
-    if incorrect_match:
-        explanation = incorrect_match.group(1).strip()
-        misconception = incorrect_match.group(2)
+    # Convert old dash style gently (if any)
+    if text.startswith("Correct - "):
+        return "Correct. " + text[len("Correct - "):].strip()
+    if text.startswith("Incorrect - "):
+        return "Incorrect. " + text[len("Incorrect - "):].strip()
 
-        if not misconception:
-            misconception = "the selected option doesn't match the lecture evidence"
-        else:
-            misconception = misconception.strip()
-
-        if not explanation.endswith('.'):
-            explanation += '.'
-        if misconception.endswith('.'):
-            misconception = misconception[:-1]
-
-        return f"Incorrect - {explanation} You likely chose this because {misconception}."
-
-    # FALLBACK: If regex fails, return the raw text instead of empty string
-    cleaned = agent_text[:500].strip()
-    return cleaned if cleaned else "AI Response was empty."
+    # Return raw (cap only to prevent UI explosion)
+    return text[:2000]
 
 
 # ----------------------------
@@ -84,20 +64,17 @@ def clean_agent_response(agent_text: str) -> str:
 async def chat_endpoint(payload: ChatRequest):
     """Send a message to the AI Tutor Agent."""
     try:
-        # 1. Send message to manager
         response_text = await chat_manager.send_message(
             session_id=payload.session_id,
             user_msg=payload.message,
             user_id=payload.user_id,
-            use_offline=payload.use_offline
+            use_offline=payload.use_offline,
         )
 
-        # ✅ DEBUG LOG: See exactly what the tool returned
+        # DEBUG: See exactly what the tool returned
         print(f"🔎 DEBUG RAW AGENT RESPONSE: '{response_text}'")
 
-        # 2. Clean up the response
         cleaned_response = clean_agent_response(response_text)
-
         return ChatResponse(response=cleaned_response)
 
     except Exception as e:
@@ -111,24 +88,30 @@ async def chat_endpoint(payload: ChatRequest):
 # ----------------------------
 @router.post("/explain", response_model=xai_schemas.XAIExplanationResponse)
 def explain_answer(
-        payload: xai_schemas.XAIExplanationRequest,
-        db: Session = Depends(get_db),
+    payload: xai_schemas.XAIExplanationRequest,
+    db: Session = Depends(get_db),
 ):
     """
     Explain a student's answer to a generated MCQ.
+
+    DB mode:
+      - payload.question_id != 0
+    Stateless mode:
+      - question_stem/options/correct_label required
+      - lecture_text optional
     """
     try:
         if payload.question_id and payload.question_id != 0:
-            # DB mode
             lecture_text, stem, options, correct_label = service.load_question_bundle(
                 db=db, question_id=payload.question_id
             )
         else:
-            # Stateless mode
-            if not (payload.question_stem and payload.options and payload.correct_label and payload.lecture_text):
-                raise ValueError("Invalid stateless payload")
+            if not (payload.question_stem and payload.options and payload.correct_label):
+                raise ValueError(
+                    "Invalid stateless payload: question_stem/options/correct_label are required."
+                )
 
-            lecture_text = payload.lecture_text
+            lecture_text = payload.lecture_text or ""
             stem = payload.question_stem
             options = payload.options
             correct_label = payload.correct_label
@@ -139,6 +122,7 @@ def explain_answer(
             options=options,
             correct_label=correct_label,
             student_label=payload.student_answer_label,
+            include_evidence=payload.include_evidence,
         )
         return resp
 

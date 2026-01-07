@@ -1,14 +1,15 @@
+# app/modules/xai/service.py
 """
-XAI service (DB-mode):
-- Loads question bundle from your exact SQLAlchemy models
-- Generates SHORT explanation (2–3 bullets)
-- Evidence retrieval is available (TF-IDF), but only appended when include_evidence=True
+XAI service (DB-mode / stateless):
+- Loads question bundle from SQLAlchemy models (DB mode)
+- Generates FULL-SENTENCE explanation (2–4 sentences)
+- Evidence retrieval is available (TF-IDF), appended only when include_evidence=True
 """
 
 from __future__ import annotations
 
 import re
-from typing import List, Tuple
+from typing import List, Tuple, Set
 
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sqlalchemy.orm import Session, joinedload
@@ -82,14 +83,14 @@ def load_question_bundle(
 
 
 # ---------------------------------------------------------------------------
-# Helpers (short, less robotic)
+# Helpers
 # ---------------------------------------------------------------------------
 
 def _question_kind(stem: str) -> str:
     s = (stem or "").strip().lower()
     if s.startswith("what is") or s.startswith("what are") or "definition" in s:
         return "definition"
-    if "purpose" in s:
+    if "purpose" in s or "used for" in s:
         return "purpose"
     if "effect" in s or "impact" in s:
         return "effect"
@@ -108,6 +109,40 @@ def _is_benefit_style(text: str) -> bool:
             t,
         )
     )
+
+
+_BASIC_STOPWORDS: Set[str] = {
+    "the", "a", "an", "and", "or", "to", "of", "in", "on", "for", "with", "by", "as",
+    "is", "are", "was", "were", "be", "been", "being", "this", "that", "these", "those",
+    "which", "what", "why", "how", "when", "where", "who", "whom", "it", "its",
+    "use", "uses", "used", "using", "technique", "method", "approach", "context"
+}
+
+
+def _tokenize_keywords(text: str) -> List[str]:
+    tokens = re.findall(r"[A-Za-z][A-Za-z\-']+", (text or "").lower())
+    tokens = [t for t in tokens if len(t) >= 3 and t not in _BASIC_STOPWORDS]
+    return tokens
+
+
+def _top_overlaps(a: str, b: str, top_k: int = 6) -> List[str]:
+    a_set = set(_tokenize_keywords(a))
+    b_set = set(_tokenize_keywords(b))
+    overlap = [t for t in a_set.intersection(b_set)]
+
+    a_tokens = _tokenize_keywords(a)
+    ordered: List[str] = []
+    for t in a_tokens:
+        if t in overlap and t not in ordered:
+            ordered.append(t)
+    return ordered[:top_k]
+
+
+def _short_quote(text: str, max_len: int = 140) -> str:
+    t = (text or "").strip().replace("\n", " ")
+    if len(t) <= max_len:
+        return t
+    return t[: max_len - 1].rstrip() + "…"
 
 
 # ---------------------------------------------------------------------------
@@ -145,7 +180,7 @@ def retrieve_evidence(lecture_text: str, query: str, top_k: int = 3) -> List[str
 
 
 # ---------------------------------------------------------------------------
-# Main explanation builder
+# Main explanation builder (FULL SENTENCES)
 # ---------------------------------------------------------------------------
 
 def build_explanation(
@@ -157,9 +192,10 @@ def build_explanation(
     include_evidence: bool = False,
 ) -> xai_schemas.XAIExplanationResponse:
     """
-    Output style:
-    - 2–3 bullets max
-    - Evidence is ONLY appended if include_evidence=True
+    Output style (STRICT):
+    - 2–4 complete sentences (no bullet points)
+    - First sentence always: "Correct/Incorrect. The correct answer is X."
+    - If lecture_text is missing, still explain using question/option keywords.
     """
     is_correct = (student_label == correct_label)
 
@@ -167,66 +203,109 @@ def build_explanation(
     student_text = (label_to_text.get(student_label) or "").strip()
     correct_text = (label_to_text.get(correct_label) or "").strip()
 
+    # Sentence 1 (verdict)
+    s1 = f"{'Correct' if is_correct else 'Incorrect'}. The correct answer is {correct_label}."
+
+    # If label mismatch, still produce full-sentence explanation
+    if not student_text:
+        s2 = (
+            "I could not match your selected option label to an option text, "
+            "so I cannot compare your choice precisely."
+        )
+        s3 = f'The correct option {correct_label} states: "{_short_quote(correct_text)}".'
+        sentences = [s1, s2, s3]
+
+        evidence: List[str] = []
+        if include_evidence:
+            query_text = f"{question_stem}\nCorrect answer: {correct_text}"
+            evidence = retrieve_evidence(lecture_text, query_text, top_k=3)
+            if evidence:
+                sentences.append(
+                    "For example, your notes support this by stating: "
+                    + "; ".join([f'"{_short_quote(e, 120)}"' for e in evidence])
+                    + "."
+                )
+            else:
+                sentences.append("I could not find a strongly matching sentence in your notes for this stem.")
+
+        reasoning = " ".join([s.strip() for s in sentences if s and s.strip()]).strip()
+        return xai_schemas.XAIExplanationResponse(
+            is_correct=is_correct,
+            student_label=student_label,
+            correct_label=correct_label,
+            reasoning=reasoning,
+            key_concepts=evidence[:3] if include_evidence else [],
+            review_topics=["Review the definition/idea and compare it to the correct option."],
+        )
+
     kind = _question_kind(question_stem)
 
-    # Verdict line (short & clear)
-    if is_correct:
-        header = f"Correct. The correct answer is {correct_label}."
-    else:
-        header = f"Incorrect. The correct answer is {correct_label}."
+    # Transparent keyword overlaps
+    q_vs_correct = _top_overlaps(question_stem, correct_text, top_k=6)
+    q_vs_student = _top_overlaps(question_stem, student_text, top_k=6)
 
-    bullets: List[str] = []
-
-    # Bullet 1: what the question is testing (simple)
+    # Sentence 2: what the question is testing
     if kind == "definition":
-        bullets.append("This question is checking the definition.")
+        s2 = "This question is asking for the correct definition of the concept described in the stem."
     elif kind == "purpose":
-        bullets.append("This question is asking what it is used for.")
+        s2 = "This question is asking what the concept is used for in practice."
     elif kind == "effect":
-        bullets.append("This question is asking what changes / what happens.")
+        s2 = "This question is asking about the effect or outcome caused by the concept."
     elif kind == "advantage":
-        bullets.append("This question is asking for the main benefit.")
+        s2 = "This question is asking for the main advantage or benefit of the concept."
     elif kind == "comparison":
-        bullets.append("This question is asking you to compare two ideas.")
+        s2 = "This question is asking you to compare closely related ideas and choose the one that matches the stem."
     else:
-        bullets.append("This question is testing the key concept.")
+        s2 = "This question is testing the key concept described by the stem."
 
-    # Bullet 2/3: short feedback
-    if not student_text:
-        bullets.append("I couldn’t read your selected option text (label mismatch).")
-        bullets.append(f'Correct option {correct_label}: "{correct_text}".')
-    else:
-        if is_correct:
-            bullets.append(f'Your choice matches the correct idea: "{correct_text}".')
-            bullets.append('Ask "why" if you want 1–3 evidence lines from your notes.')
+    sentences: List[str] = [s1, s2]
+
+    if is_correct:
+        if q_vs_correct:
+            sentences.append(
+                f'Your choice matches the stem keywords ({", ".join(q_vs_correct)}), '
+                f'which aligns with option {correct_label}: "{_short_quote(correct_text)}".'
+            )
         else:
-            if _is_benefit_style(student_text) and kind in {"definition", "purpose", "effect"}:
-                bullets.append("Your option sounds like a benefit/result, but the question wants the core idea.")
-            else:
-                bullets.append("Your option answers a different angle than what the question is asking.")
-            bullets.append(f'Correct option {correct_label}: "{correct_text}". (Ask "why" for note evidence.)')
+            sentences.append(
+                f'Your choice matches the intended meaning of the stem, '
+                f'which is captured by option {correct_label}: "{_short_quote(correct_text)}".'
+            )
+    else:
+        correct_kw = ", ".join(q_vs_correct) if q_vs_correct else "the key terms in the stem"
+        student_kw = ", ".join(q_vs_student) if q_vs_student else "different terms than the stem"
 
-    # Evidence only when requested
+        if _is_benefit_style(student_text) and kind in {"definition", "purpose", "effect"}:
+            sentences.append(
+                f'Your option focuses on a benefit/result idea, but the stem is targeting {correct_kw}, '
+                f'which is why option {correct_label} ("{_short_quote(correct_text)}") is the best match.'
+            )
+        else:
+            sentences.append(
+                f'Your option emphasizes {student_kw}, but the stem points to {correct_kw}, '
+                f'which is why option {correct_label} ("{_short_quote(correct_text)}") is correct.'
+            )
+
+        sentences.append(
+            f'In short, option {student_label} ("{_short_quote(student_text)}") does not answer what the stem asks, '
+            f'while option {correct_label} directly addresses it.'
+        )
+
     evidence: List[str] = []
     if include_evidence:
         query_text = f"{question_stem}\nCorrect answer: {correct_text}"
         evidence = retrieve_evidence(lecture_text, query_text, top_k=3)
-
-    # Reasoning string (keep compatible with your current UI)
-    # IMPORTANT: Use newlines so frontend can render it as bullets if you enable pre-wrap.
-    reasoning_lines = [header, "Because:"]
-    reasoning_lines.extend([f"- {b}" for b in bullets[:3]])  # cap 2–3 bullets
-
-    if include_evidence:
-        reasoning_lines.append("Evidence:")
         if evidence:
-            reasoning_lines.extend([f"- {s}" for s in evidence])
+            sentences.append(
+                "For example, your notes support this by stating: "
+                + "; ".join([f'"{_short_quote(e, 120)}"' for e in evidence])
+                + "."
+            )
         else:
-            reasoning_lines.append("- (No matching lecture sentence found.)")
+            sentences.append("I could not find a strongly matching sentence in your notes for this stem.")
 
-    reasoning_text = "\n".join(reasoning_lines)
+    reasoning_text = " ".join([s.strip() for s in sentences if s and s.strip()]).strip()
 
-    # Return fields that your frontend currently uses: is_correct, correct_label, reasoning
     return xai_schemas.XAIExplanationResponse(
         is_correct=is_correct,
         student_label=student_label,
