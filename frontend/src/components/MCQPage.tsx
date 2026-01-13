@@ -37,6 +37,53 @@ type InternalResult = QuestionResult & {
 
 const QUIZ_SECONDS_PER_QUESTION = 60;
 
+// Helper to format text with numbered lists
+const formatTextWithLists = (text: string) => {
+  // Match patterns like "1. ", "2. ", etc. or "1 ", "2 ", etc.
+  // and convert them to structured format with proper line breaks
+  return text
+    .split('\n')
+    .map((line) => {
+      const trimmed = line.trim();
+      // Check if line starts with a number followed by . or )
+      const match = trimmed.match(/^(\d+)[.\s]+(.*)$/);
+      if (match) {
+        const [, num, content] = match;
+        return { type: 'listItem', number: num, content: content.trim() };
+      }
+      return { type: 'text', content: trimmed };
+    });
+};
+
+// Helper to render formatted text with lists and bold text
+const renderFormattedText = (text: string) => {
+  const formatted = formatTextWithLists(text);
+  
+  // Function to parse and render bold text (**text**)
+  const renderBoldText = (content: string) => {
+    const parts = content.split(/\*\*(.*?)\*\*/g);
+    return parts.map((part, idx) => 
+      idx % 2 === 0 ? part : <strong key={idx} className="font-semibold">{part}</strong>
+    );
+  };
+  
+  return (
+    <div className="space-y-1">
+      {formatted.map((item, idx) => {
+        if (item.type === 'listItem') {
+          return (
+            <div key={idx} className="flex gap-2">
+              <span className="font-semibold text-slate-700 flex-shrink-0">{item.number})</span>
+              <span>{renderBoldText(item.content)}</span>
+            </div>
+          );
+        }
+        return item.content ? <div key={idx}>{renderBoldText(item.content)}</div> : null;
+      })}
+    </div>
+  );
+};
+
 // Helper to create a welcome message for a specific question
 const createWelcomeMessage = (questionNum: number): ChatMessage => ({
   id: 1,
@@ -488,7 +535,7 @@ export function MCQPage({ questions, onComplete, mode, onExit }: MCQPageProps) {
                                   : "bg-white text-slate-800 border border-slate-200 rounded-bl-md"
                               }`}
                             >
-                              {msg.text}
+                              {isUser ? msg.text : renderFormattedText(msg.text)}
                               <span className={`absolute bottom-1 right-2 text-[11px] opacity-70 ${isUser ? "text-primary-foreground/70" : "text-slate-500"}`}>
                                 {timeStr}
                               </span>
